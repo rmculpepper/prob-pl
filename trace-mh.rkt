@@ -1,5 +1,6 @@
 #lang racket/base
 (require (rename-in racket/match [match-define defmatch])
+         racket/class
          racket/set
          gamble)
 (provide (all-defined-out))
@@ -510,105 +511,120 @@
 ;; MH Sampler -- combining classic eval and tracing
 ;; ============================================================
 
-(define (mh-eval expr n)
-  (define results '())
+(define (mh-eval expr n #:verbose? [verbose? #f])
+  (define s (new sampler% (expr expr) (verbose? verbose?)))
+  (for/list ([i n]) (send s sample)))
 
-  (define prev-result #f)
-  (define prev-likelihood #f)
-  (define prev-db #f)
-  (define db-needs-update? #f)
+;; Let's try something simpler (but less efficient):
+;; - Adapt lightweight-mh eval-expr nearly as-is, operates on DBs.
+;; - Add trace-expr fun, completely separate (similar)
+;; - When doing N change, trace (unless cached), then exec-trace
+;; - When doing S change, convert tmapping+tstore -> complete DB, then eval-expr
+;; Never have to worry about likelihood compat, etc.
 
-  (define prev-trace #f)
-  (define prev-result-te #f)
-  (define prev-tmapping #f)
-  (define prev-tstore #f)
+(define sampler%
+  (class object%
+    (init-field expr
+                [verbose? #f])
+    (super-new)
 
-  (let loop ()
-    (match (eval-top expr '#hash())
-      [(list result likelihood db)
-       (cond [(> likelihood 0)
-              (set! prev-result result)
-              (set! prev-likelihood likelihood)
-              (set! prev-db db)]
-             [else (loop)])]))
-  (when (zero? (hash-count prev-db))
-    (error 'mh "program is deterministic"))
+    (field [prev-result #f]
+           [prev-likelihood #f]
+           [prev-db #f]
+           [db-needs-update? #f]
 
-  ;; ERR, this has gotten complicated.
-  ;; Let's try something simpler (but less efficient):
-  ;; - Adapt lightweight-mh eval-expr nearly as-is, operates on DBs.
-  ;; - Add trace-expr fun, completely separate (similar)
-  ;; - When doing N change, trace (unless cached), then exec-trace
-  ;; - When doing S change, convert tmapping+tstore -> complete DB, then eval-expr
-  ;; Never have to worry about likelihood compat, etc.
+           [prev-trace #f]
+           [prev-result-te #f]
+           [prev-tmapping #f]
+           [prev-tstore #f])
 
-  (for ([i n])
-    (define key-to-change (list-ref (hash-keys prev-db) (random (hash-count prev-db))))
-    (cond [(entry-structural? (hash-ref prev-db key-to-change))
-           ;; Structural choice
-           (when db-needs-update?
-             (db-add-tstore! prev-db prev-tmapping prev-tstore)
-             (set! db-needs-update? #f))
-           (defmatch (entry #t dist value) (hash-ref prev-db key-to-change))
-           (defmatch (cons value* proposal-factor) (propose dist value))
-           (define modified-prev-db (hash-copy prev-db))
-           (hash-set! modified-prev-db key-to-change (entry #t dist value*))
-           (defmatch (list new-result new-likelihood new-db)
-             (eval-top expr modified-prev-db))
-           (define accept-threshold
-             ;; (Qbackward / Qforward) * (Pnew / Pprev)
-             (* proposal-factor
-                (/ (hash-count prev-db) (hash-count new-db))
-                (/ new-likelihood prev-likelihood)
-                (for/product ([(key old-entry) (in-hash prev-db)]
-                              #:when (hash-has-key? new-db key))
-                             (define new-entry (hash-ref new-db key))
-                             ;; ASSERT: (entry-value new-entry) = (entry-value old-entry)
-                             (/ (dist-pdf (entry-dist new-entry) (entry-value new-entry))
-                                (dist-pdf (entry-dist old-entry) (entry-value old-entry))))))
-           (cond [(< (random) accept-threshold)
-                  (set! results (cons new-result results))
-                  (set! prev-result new-result)
-                  (set! prev-likelihood new-likelihood)
-                  (set! prev-db new-db)
-                  (set! prev-trace #f)
-                  (set! prev-result-te #f)
-                  (set! prev-tmapping #f)
-                  (set! prev-tstore #f)]
-                 [else
-                  (set! results (cons prev-result results))])]
+    ;; Initialize
+    (let loop ()
+      (match (eval-top expr '#hash())
+        [(list result likelihood db)
+         (cond [(> likelihood 0)
+                (set! prev-result result)
+                (set! prev-likelihood likelihood)
+                (set! prev-db db)]
+               [else (loop)])]))
+    (when (zero? (hash-count prev-db))
+      (error 'mh "program is deterministic"))
 
-          [else
-           ;; Non-structural choice
-           (unless prev-trace
+    (define/public (sample)
+      (define key-to-change (list-ref (hash-keys prev-db) (random (hash-count prev-db))))
+      (cond [(entry-structural? (hash-ref prev-db key-to-change))
+             (sample-S key-to-change)]
+            [else
+             (sample-N key-to-change)]))
+
+    (define/public (sample-S key-to-change)
+      (when db-needs-update?
+        (vprintf "S: updating db\n")
+        (db-add-tstore! prev-db prev-tmapping prev-tstore)
+        (set! db-needs-update? #f))
+      (defmatch (entry #t dist value) (hash-ref prev-db key-to-change))
+      (defmatch (cons value* proposal-factor) (propose dist value))
+      (define modified-prev-db (hash-copy prev-db))
+      (hash-set! modified-prev-db key-to-change (entry #t dist value*))
+      (defmatch (list new-result new-likelihood new-db)
+        (eval-top expr modified-prev-db))
+      (define accept-threshold
+        ;; (Qbackward / Qforward) * (Pnew / Pprev)
+        (* proposal-factor
+           (/ (hash-count prev-db) (hash-count new-db))
+           (/ new-likelihood prev-likelihood)
+           (for/product ([(key old-entry) (in-hash prev-db)]
+                         #:when (hash-has-key? new-db key))
+                        (define new-entry (hash-ref new-db key))
+                        ;; ASSERT: (entry-value new-entry) = (entry-value old-entry)
+                        (/ (dist-pdf (entry-dist new-entry) (entry-value new-entry))
+                           (dist-pdf (entry-dist old-entry) (entry-value old-entry))))))
+      (cond [(< (random) accept-threshold)
+             (set! prev-result new-result)
+             (set! prev-likelihood new-likelihood)
+             (set! prev-db new-db)
+             (set! prev-trace #f)
+             (set! prev-result-te #f)
+             (set! prev-tmapping #f)
+             (set! prev-tstore #f)
+             new-result]
+            [else
+             prev-result]))
+
+    (define/public (sample-N key-to-change)
+      (cond [prev-trace
+             (vprintf "N: reusing trace\n")]
+            [else
+             (vprintf "N: tracing\n")
              (defmatch (list result-te tmapping tstore trace) (trace-top expr prev-db))
              (set! prev-trace trace)
              (set! prev-result-te result-te)
              (set! prev-tmapping tmapping)
-             (set! prev-tstore tstore))
-           (defmatch (list #f dist-te value-te)
-             (hash-ref prev-tmapping key-to-change))
-           (define dist (eval-trace-expr dist-te prev-tstore))
-           (define value (eval-trace-expr value-te prev-tstore))
-           (define current-tstore (hash-copy prev-tstore))
-           (define prev-l (exec-trace prev-trace current-tstore))
-           (defmatch (cons value* proposal-factor) (propose dist value))
-           (tstore-set! current-tstore value-te value*)
-           (define current-l (exec-trace prev-trace current-tstore))
-           (define result (eval-trace-expr prev-result-te current-tstore))
-           (define accept-threshold
-             (* 1 ;; size of db doesn't chane
-                proposal-factor
-                (/ current-l prev-l)))
-           (cond [(< (random) accept-threshold)
-                  (set! db-needs-update? #t)
-                  (set! prev-tstore current-tstore)
-                  (set! prev-result result)
-                  (set! results (cons result results))]
-                 [else
-                  (set! results (cons prev-result results))])]))
+             (set! prev-tstore tstore)])
+      (defmatch (list #f dist-te value-te)
+        (hash-ref prev-tmapping key-to-change))
+      (define dist (eval-trace-expr dist-te prev-tstore))
+      (define value (eval-trace-expr value-te prev-tstore))
+      (define current-tstore (hash-copy prev-tstore))
+      (define prev-l (exec-trace prev-trace current-tstore))
+      (defmatch (cons value* proposal-factor) (propose dist value))
+      (tstore-set! current-tstore value-te value*)
+      (define current-l (exec-trace prev-trace current-tstore))
+      (define result (eval-trace-expr prev-result-te current-tstore))
+      (define accept-threshold
+        (* 1 ;; size of db doesn't change
+           proposal-factor
+           (/ current-l prev-l)))
+      (cond [(< (random) accept-threshold)
+             (set! db-needs-update? #t)
+             (set! prev-tstore current-tstore)
+             (set! prev-result result)
+             result]
+            [else prev-result]))
 
-  (reverse results))
+    (define/public (vprintf fmt . args)
+      (when verbose? (apply eprintf fmt args)))
+    ))
 
 ;; propose : Dist Value -> (cons Value Real)
 (define (propose dist value)
