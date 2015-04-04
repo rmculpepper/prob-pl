@@ -109,13 +109,13 @@
 
 ;; A Value is one of
 ;; - datum
-;; - (primop (Value ... -> Value) -- applicable, but not "Function" (can't use w/ fix)
+;; - (primop Symbol (Value ... -> Value) -- applicable, but not "Function" (can't use w/ fix)
 ;; - Function
 ;; A Function is one of
 ;; - (closure (Listof Symbol) Expr Env)
 ;; - (fixed Function)
 ;; - (memoized Function Address Hash)
-(struct primop (proc) #:transparent)
+(struct primop (name proc) #:transparent)
 (struct closure (formals body env) #:transparent)
 (struct fixed (fun) #:transparent)
 (struct memoized (fun addr table) #:transparent)
@@ -130,11 +130,10 @@
 (define base-env
   (let-syntax ([primop-env
                 (syntax-rules ()
-                  [(_ v ...) (list (cons 'v (primop v)) ...)])])
+                  [(_ v ...) (list (cons 'v (primop 'v v)) ...)])])
     (primop-env + - * / = < > <= >= zero?
                 not
                 cons list car cdr null? pair?
-                vector make-vector vector-ref vector? vector-length
                 bernoulli-dist poisson-dist
                 uniform-dist normal-dist)))
 
@@ -214,7 +213,7 @@
 
 (define (apply-function f args addr)
   (match f
-    [(primop proc)
+    [(primop _ proc)
      (apply proc args)]
     [(closure formals body env)
      (unless (= (length formals) (length args))
@@ -271,11 +270,13 @@
 ;; - (t:sample TraceVar TraceExpr TraceExpr)
 ;; A TraceExpr is one of
 ;; - (t:quote Datum)
+;; - (t:cons TraceExpr TraceExpr)
 ;; - TraceVar
 ;; A TraceVar is a Symbol
 (struct t:primop (var primop args) #:transparent)
 (struct t:sample (var dist value) #:transparent)
 (struct t:quote (datum) #:transparent)
+(struct t:cons (e1 e2) #:transparent)
 
 ;; Intern these for easier testing --- for now
 (define (gentv) (string->symbol (symbol->string (gensym 'tv))))
@@ -321,7 +322,8 @@
 (define (eval-trace-expr texpr tstore)
   (match texpr
     [(? symbol? tvar) (tstore-ref tstore tvar)]
-    [(t:quote datum) datum]))
+    [(t:quote datum) datum]
+    [(t:cons e1 e2) (cons (eval-trace-expr e1 tstore) (eval-trace-expr e2 tstore))]))
 
 ;; eval-trace-exprs : (Listof TraceExpr) TraceStore -> (Listof Value)
 (define (eval-trace-exprs texprs tstore)
@@ -414,7 +416,7 @@
     [(expr:mem cs e)
      (match (trace-expr e env addr)
        [(t:quote (? function? f))
-        (t:quote (memoized f (make-hash (cons cs addr))))]
+        (t:quote (memoized f (make-hash) (cons cs addr)))]
        [(t:quote f) (error 'trace-expr "mem: not a function: ~e" f)]
        [_ (error 'trace-expr "mem: function not determined by S choices")])]))
 
@@ -423,36 +425,57 @@
   (for/list ([expr exprs]) (trace-expr expr env addr)))
 
 ;; trace-apply-function : TraceExpr (Listof TraceExpr) Addr -> TraceExpr
-(define (trace-apply-function f args addr)
+(define (trace-apply-function fe args addr)
+  (match fe
+    [(t:quote f)
+     (trace-apply-function* f args addr)]
+    [(? symbol? tvar)
+     (error 'trace-apply-function "function is not determined by S choices")]
+    [_ (error 'trace-apply-function "bad function expr: ~e" fe)]))
+
+;; trace-apply-function* : Value (Listof TraceExpr) Addr -> TraceExpr
+(define (trace-apply-function* f args addr)
   (match f
-    [(t:quote (primop proc))
-     ;; FIXME: what about cons, car, cdr, etc? Want (car (cons tvar _)) = tvar
-     (cond [(andmap t:quote? args)
-            (t:quote (apply proc (map t:quote-datum args)))]
-           [else
-            (define var (gentv))
-            (define ts (t:primop var proc args))
-            (emit-and-exec-trace-statement ts)
-            var])]
-    [(t:quote (closure formals body env))
+    [(and p (primop _ _))
+     (trace-apply-primop p args)]
+    [(closure formals body env)
      (unless (= (length formals) (length args))
-       (error 'trace-apply-function "arity mismatch: expected ~s, given ~s"
+       (error 'trace-apply-function* "arity mismatch: expected ~s, given ~s"
               (length formals) (length args)))
      (define env* (append (map cons formals args) env))
      (trace-expr body env* addr)]
-    [(t:quote (fixed inner-fun))
-     (define f* (trace-apply-function (t:quote inner-fun) (list f) 'fix))
-     (trace-apply-function f* args addr)]
-    [(t:quote (memoized inner-fun table saved-addr))
-     (define addr* (cons (cons 'mem args) saved-addr))
+    [(fixed inner-fun)
+     (define fe* (trace-apply-function* inner-fun (list (t:quote f)) 'fix))
+     (trace-apply-function fe* args addr)]
+    [(memoized inner-fun table saved-addr)
      (unless (andmap t:quote? args)
-       (error 'trace-apply-function
+       (error 'trace-apply-function*
               "arguments to memoized function not determined by S choices"))
-     (hash-ref! table args (lambda () (trace-apply-function inner-fun args addr*)))]
-    [(t:quote inner-f) (error 'trace-apply-function "not a function: ~e" inner-f)]
-    [(? symbol? tvar)
-     (error 'trace-apply-function "function is not determined by S choices")]
-    [_ (error 'trace-apply-function "bad function: ~e" f)]))
+     (define addr* (cons (cons 'mem (map t:quote-datum args)) saved-addr))
+     (hash-ref! table args (lambda () (trace-apply-function* inner-fun args addr*)))]
+    [_ (error 'trace-apply-function* "bad function: ~e" f)]))
+
+(define (trace-apply-primop p args)
+  (match* (p args)
+    [[(primop _ proc) args]
+     #:when (andmap t:quote? args)
+     (t:quote (apply proc (map t:quote-datum args)))]
+    [[(primop 'cons _) (list e1 e2)]
+     (t:cons e1 e2)]
+    [[(primop 'list _) _]
+     (foldr t:cons (t:quote '()) args)]
+    [[(primop 'car _) (list (t:cons e1 e2))]
+     e1]
+    [[(primop 'cdr _) (list (t:cons e1 e2))]
+     e2]
+    [[(primop 'pair? _) (list (t:cons _ _))]
+     (t:quote #t)]
+    [[(primop 'null? _) (list (t:cons _ _))]
+     (t:quote #f)]
+    [[(primop _ proc) _]
+     (define var (gentv))
+     (emit-and-exec-trace-statement (t:primop var proc args))
+     var]))
 
 (define (trace-do-S-sample de addr)
   (defmatch (entry _ _ value) (hash-ref (last-db) addr))
@@ -618,23 +641,28 @@
   '(let* ([f (mem (lambda (i) (N-sample (bernoulli-dist 1/2))))])
     (list (f 1) (f 1) (f 2) (f 2))))
 
-(define p-mix
-  '(let* ([A (N-sample (uniform-dist 0 1))]
-          [B (N-sample (uniform-dist 0 2))]
-          [X .8]
-          [Y 1.3])
+(define p-mem2
+  '(let* ([build-rlist
+           (fix (lambda (build-rlist)
+                  (lambda (n f)
+                    (if (zero? n) '() (cons (f n) (build-rlist (- n 1) f))))))]
+          [n (S-sample (poisson-dist 5))]
+          [f (mem (lambda (i) (N-sample (bernoulli-dist 1/2))))])
+    (build-rlist n f)))
+
+(define p-match
+  '(let* ([soft-eq (lambda (a b) (observe-sample (normal-dist a 1) b))]
+          [A (N-sample (normal-dist 0 1))]
+          [B (N-sample (normal-dist 1 1))]
+          [X .3]
+          [Y .8])
     (if (= 0 (S-sample (bernoulli-dist 1/2)))
-        (let* ([_o1 (observe-sample (normal-dist A .1) X)]
-               [_o2 (observe-sample (normal-dist B .1) Y)])
+        (let* ([_o (list (soft-eq A X) (soft-eq B Y))])
           'ax)
-        (let* ([_o1 (observe-sample (normal-dist A .1) Y)]
-               [_o2 (observe-sample (normal-dist B .1) X)])
+        (let* ([_o (list (soft-eq A Y) (soft-eq B X))])
           'ay))))
 
 (define p-ising
-  ;; This doesn't work because we don't separate the structure of a list
-  ;; from its value --- value depends on N-choices, structure doesn't.
-  ;; FIXME
   '(let* ([bigrams (fix (lambda (bigrams)
                           (lambda (lst) (if (null? (cdr lst))
                                        '()
