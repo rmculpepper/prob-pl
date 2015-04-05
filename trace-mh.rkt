@@ -19,7 +19,7 @@
 
 ;; A Trace is (Listof TraceStmt)
 ;; A TraceStmt is one of
-;; - (t:primop TraceVar Procedure (Listof TraceExpr))
+;; - (t:primop TraceVar Primop (Listof TraceExpr))
 ;; - (t:sample TraceVar TraceExpr TraceExpr)
 ;; A TraceExpr is one of
 ;; - (t:quote Datum)
@@ -57,7 +57,7 @@
   (match ts
     [(t:primop var primop args)
      (tstore-set! tstore var
-       (apply primop (eval-trace-exprs args tstore)))
+       (apply (primop-proc primop) (eval-trace-exprs args tstore)))
      1]
     [(t:sample var dist-e val-e)
      (define dist (eval-trace-expr dist-e tstore))
@@ -230,9 +230,9 @@
      (t:quote #t)]
     [[(primop 'null? _) (list (t:cons _ _))]
      (t:quote #f)]
-    [[(primop _ proc) _]
+    [[(primop _ _) _]
      (define var (gentv))
-     (emit-and-exec-trace-statement (t:primop var proc args))
+     (emit-and-exec-trace-statement (t:primop var p args))
      var]))
 
 (define (trace-do-S-sample de addr)
