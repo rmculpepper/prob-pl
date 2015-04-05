@@ -127,14 +127,18 @@
     (primop-env + - * / = < > <= >= zero?
                 not
                 cons list car cdr null? pair?
-                bernoulli-dist poisson-dist
-                uniform-dist normal-dist)))
+                bernoulli-dist binomial-dist categorical-dist
+                geometric-dist poisson-dist
+                beta-dist cauchy-dist exponential-dist gamma-dist
+                logistic-dist normal-dist pareto-dist uniform-dist)))
 
 ;; dist-primop? : Symbol -> Boolean
 ;; Indicates whether s is the name of a dist-building primop.
 (define (dist-primop? s)
-  (memq s '(bernoulli-dist poisson-dist
-            uniform-dist normal-dist)))
+  (memq s '(bernoulli-dist binomial-dist categorical-dist
+            geometric-dist poisson-dist
+            beta-dist cauchy-dist exponential-dist gamma-dist
+            logistic-dist normal-dist pareto-dist uniform-dist)))
 
 ;; ============================================================
 ;; Example programs
@@ -194,3 +198,13 @@
            [vals (repeat n (lambda () (N-sample (bernoulli-dist 1/2))))]
            [_o (map (lambda (b) (soft-eq (car b) (cdr b))) (bigrams vals))])
      vals)))
+
+(define p-coin
+  (parse-expr
+   '(let* ([repeat (fix (lambda (repeat) (lambda (n f) (if (zero? n) '() (cons (f) (repeat (- n 1) f))))))]
+           ;; ----
+           [fair (S-sample (bernoulli-dist 9/10))]
+           [1prob (if (= fair 1) 1/2 (N-sample (beta-dist 1 1)))]
+           [obs-flip (lambda (result) (observe-sample (bernoulli-dist 1prob) result))]
+           [_o (repeat 50 (lambda () (obs-flip 1)))])
+     fair)))
