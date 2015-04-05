@@ -24,15 +24,28 @@
 ;; A TraceExpr is one of
 ;; - (t:quote Datum)
 ;; - (t:cons TraceExpr TraceExpr)
+;; - (t:dist Symbol (Listof TraceExpr))
 ;; - TraceVar
 ;; A TraceVar is a Symbol
 (struct t:primop (var primop args) #:transparent)
 (struct t:sample (var dist value) #:transparent)
 (struct t:quote (datum) #:transparent)
 (struct t:cons (e1 e2) #:transparent)
+(struct t:dist (name args) #:transparent)
 
 ;; Intern these for easier testing --- for now
 (define (gentv) (string->symbol (symbol->string (gensym 'tv))))
+
+;; constant-te? : TraceExpr -> Boolean
+(define (constant-te? te)
+  (match te
+    [(t:quote _) #t]
+    [(t:cons e1 e2) (and (constant-te? e1) (constant-te? e2))]
+    [(t:dist name args) (andmap constant-te? args)]
+    [(? symbol?) #f]))
+
+;; not-constant-te? : TraceExpr -> Boolean
+(define (not-constant-te? te) (not (constant-te? te)))
 
 ;; ------------------------------------------------------------
 
@@ -68,9 +81,14 @@
 ;; eval-trace-expr : TraceExpr TraceStore -> Value
 (define (eval-trace-expr texpr tstore)
   (match texpr
-    [(? symbol? tvar) (tstore-ref tstore tvar)]
-    [(t:quote datum) datum]
-    [(t:cons e1 e2) (cons (eval-trace-expr e1 tstore) (eval-trace-expr e2 tstore))]))
+    [(? symbol? tvar)
+     (tstore-ref tstore tvar)]
+    [(t:quote datum)
+     datum]
+    [(t:cons e1 e2)
+     (cons (eval-trace-expr e1 tstore) (eval-trace-expr e2 tstore))]
+    [(t:dist name args)
+     (apply (primop-name->procedure name) (eval-trace-exprs args tstore))]))
 
 ;; eval-trace-exprs : (Listof TraceExpr) TraceStore -> (Listof Value)
 (define (eval-trace-exprs texprs tstore)
@@ -158,7 +176,9 @@
        [_ (error 'trace-expr "fix: function not determined by S choices")])]
     [(expr:if e1 e2 e3)
      (match (trace-expr e1 env addr)
-       [(t:quote (? values))
+       [(or (t:quote (? values))
+            (t:cons _ _)
+            (t:dist _ _))
         (trace-expr e2 env addr)]
        [(t:quote #f)
         (trace-expr e3 env addr)]
@@ -206,10 +226,10 @@
      (define fe* (trace-apply-function* inner-fun (list (t:quote f)) 'fix))
      (trace-apply-function fe* args addr)]
     [(memoized inner-fun table saved-addr)
-     (unless (andmap t:quote? args)
+     (unless (andmap constant-te? args)
        (error 'trace-apply-function*
               "arguments to memoized function not determined by S choices"))
-     (define addr* (cons (cons 'mem (map t:quote-datum args)) saved-addr))
+     (define addr* (cons (cons 'mem (eval-trace-exprs args '#hash())) saved-addr))
      (hash-ref! table args (lambda () (trace-apply-function* inner-fun args addr*)))]
     [_ (error 'trace-apply-function* "bad function: ~e" f)]))
 
@@ -222,6 +242,8 @@
      (t:cons e1 e2)]
     [[(primop 'list) _]
      (foldr t:cons (t:quote '()) args)]
+    [[(primop (? dist-primop? dist-primop)) args]
+     (t:dist dist-primop args)]
     [[(primop 'car) (list (t:cons e1 e2))]
      e1]
     [[(primop 'cdr) (list (t:cons e1 e2))]
@@ -238,11 +260,9 @@
 (define (trace-do-S-sample de addr)
   (defmatch (entry _ _ value) (hash-ref (last-db) addr))
   ;; value is constant wrt trace, because this is an S choice
-  (match de
-    [(t:quote _)        ;; d doesn't depend on any N choice; constant
-     (void)]
-    [(? symbol? dvar)   ;; need to rescore if d changes
-     (emit-and-exec-trace-statement (t:sample (gentv) dvar (t:quote value)))])
+  (unless (constant-te? de)
+    ;; need to rescore if dist changes
+    (emit-and-exec-trace-statement (t:sample (gentv) de (t:quote value))))
   (hash-set! (current-tmapping) addr (list #t de (t:quote value)))
   (t:quote value))
 
