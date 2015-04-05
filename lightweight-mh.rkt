@@ -96,8 +96,8 @@
 ;; apply-function : Value (Listof Value) Addr -> Value
 (define (apply-function f args addr)
   (match f
-    [(primop _ proc)
-     (apply proc args)]
+    [(primop name)
+     (apply (primop-name->procedure name) args)]
     [(closure formals body env)
      (unless (= (length formals) (length args))
        (error 'apply-function "arity mismatch: expected ~s, given ~s"

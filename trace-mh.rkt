@@ -55,9 +55,9 @@
 ;; exec-trace-statement : TraceStatement TraceStore -> Real
 (define (exec-trace-statement ts tstore)
   (match ts
-    [(t:primop var primop args)
+    [(t:primop var (primop name) args)
      (tstore-set! tstore var
-       (apply (primop-proc primop) (eval-trace-exprs args tstore)))
+       (apply (primop-name->procedure name) (eval-trace-exprs args tstore)))
      1]
     [(t:sample var dist-e val-e)
      (define dist (eval-trace-expr dist-e tstore))
@@ -197,7 +197,7 @@
 ;; trace-apply-function* : Value (Listof TraceExpr) Addr -> TraceExpr
 (define (trace-apply-function* f args addr)
   (match f
-    [(and p (primop _ _))
+    [(and p (primop _))
      (trace-apply-primop p args)]
     [(closure formals body env)
      (define env* (append (map cons formals args) env))
@@ -215,22 +215,22 @@
 
 (define (trace-apply-primop p args)
   (match* (p args)
-    [[(primop _ proc) args]
+    [[(primop name) args]
      #:when (andmap t:quote? args)
-     (t:quote (apply proc (map t:quote-datum args)))]
-    [[(primop 'cons _) (list e1 e2)]
+     (t:quote (apply (primop-name->procedure name) (map t:quote-datum args)))]
+    [[(primop 'cons) (list e1 e2)]
      (t:cons e1 e2)]
-    [[(primop 'list _) _]
+    [[(primop 'list) _]
      (foldr t:cons (t:quote '()) args)]
-    [[(primop 'car _) (list (t:cons e1 e2))]
+    [[(primop 'car) (list (t:cons e1 e2))]
      e1]
-    [[(primop 'cdr _) (list (t:cons e1 e2))]
+    [[(primop 'cdr) (list (t:cons e1 e2))]
      e2]
-    [[(primop 'pair? _) (list (t:cons _ _))]
+    [[(primop 'pair?) (list (t:cons _ _))]
      (t:quote #t)]
-    [[(primop 'null? _) (list (t:cons _ _))]
+    [[(primop 'null?) (list (t:cons _ _))]
      (t:quote #f)]
-    [[(primop _ _) _]
+    [[(primop _) _]
      (define var (gentv))
      (emit-and-exec-trace-statement (t:primop var p args))
      var]))

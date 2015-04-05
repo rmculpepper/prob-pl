@@ -73,7 +73,7 @@
     (match trace
       [(cons ts trace-rest)
        (match ts
-         [(t:primop dest-var (primop (? dist-primop? dist-primop) _) args)
+         [(t:primop dest-var (primop (? dist-primop? dist-primop)) args)
           #:when (= 1 (length (filter (lambda (a) (equal? a main-var)) args)))
           (define dist-pattern
             (cons dist-primop

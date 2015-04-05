@@ -69,8 +69,8 @@
 ;; apply-function : Value (Listof Value) -> Value
 (define (apply-function f args)
   (match f
-    [(primop _ proc)
-     (apply proc args)]
+    [(primop name)
+     (apply (primop-name->procedure name) args)]
     [(closure formals body env)
      (unless (= (length formals) (length args)) (error 'apply-function "arity"))
      (define env* (append (map cons formals args) env))

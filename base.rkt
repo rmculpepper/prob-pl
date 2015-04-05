@@ -99,14 +99,14 @@
 
 ;; A Value is one of
 ;; - datum
-;; - (primop Symbol (Value ... -> Value))
+;; - (primop Symbol)
 ;; - Function
 ;; A Function is one of
 ;; - (closure (Listof Symbol) Expr Env)
 ;; - (fixed Function)
 ;; - (memoized Function Address Hash)
 ;; (Note: primops are applicable, but not "Function" accepted by fix, mem.)
-(struct primop (name proc) #:transparent)
+(struct primop (name) #:transparent)
 (struct closure (formals body env) #:transparent)
 (struct fixed (fun) #:transparent)
 (struct memoized (fun addr table) #:transparent)
@@ -119,26 +119,37 @@
 
 ;; An Env is (Listof (cons Symbol Value))
 
-;; base-env : Env
-(define base-env
-  (let-syntax ([primop-env
+;; {scheme-,dist-,}primops : (Listof (cons Symbol Procedure))
+(define-values (scheme-primops dist-primops)
+  (let-syntax ([primop-alist
                 (syntax-rules ()
-                  [(_ v ...) (list (cons 'v (primop 'v v)) ...)])])
-    (primop-env + - * / = < > <= >= zero?
-                not
-                cons list car cdr null? pair?
-                bernoulli-dist binomial-dist categorical-dist
-                geometric-dist poisson-dist
-                beta-dist cauchy-dist exponential-dist gamma-dist
-                logistic-dist normal-dist pareto-dist uniform-dist)))
+                  [(_ name ...) (list (cons 'name name) ...)])])
+    (values
+     (primop-alist + - * / = < > <= >= zero?
+                   not
+                   cons list car cdr null? pair?)
+     (primop-alist bernoulli-dist binomial-dist categorical-dist
+                   geometric-dist poisson-dist
+                   beta-dist cauchy-dist exponential-dist gamma-dist
+                   logistic-dist normal-dist pareto-dist uniform-dist))))
+(define primops (append scheme-primops dist-primops))
+
+;; primop-name->procedure : Symbol -> Procedure
+(define (primop-name->procedure name)
+  (cond [(assq name primops) => cdr]
+        [else (error 'primop-name->procedure "unknown primop name: ~s" name)]))
+
+;; primop->procedure : Primop -> Procedure
+(define (primop->procedure p)
+  (primop-name->procedure (primop-name p)))
 
 ;; dist-primop? : Symbol -> Boolean
 ;; Indicates whether s is the name of a dist-building primop.
 (define (dist-primop? s)
-  (memq s '(bernoulli-dist binomial-dist categorical-dist
-            geometric-dist poisson-dist
-            beta-dist cauchy-dist exponential-dist gamma-dist
-            logistic-dist normal-dist pareto-dist uniform-dist)))
+  (and (assq s dist-primops) #t))
+
+;; base-env : Env
+(define base-env (map (lambda (name) (cons name (primop name))) (map car primops)))
 
 ;; ============================================================
 ;; Example programs
