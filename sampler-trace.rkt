@@ -58,6 +58,14 @@
       (when db-needs-update?
         (vprintf "S: updating db\n")
         (db-add-tstore! prev-db prev-tmapping prev-tstore)
+        ;; Rerun to get up-to-date likelihood
+        (defmatch (list new-result new-likelihood new-db)
+          (eval-top expr prev-db))
+        (unless (equal? new-result prev-result)
+          (error 'sample-S "result changed\n  from: ~v\n  to: ~v" prev-result new-result))
+        (unless (equal? new-db prev-db)
+          (error 'sample-S "db changed\n  from: ~v\n  to: ~v" prev-db new-db))
+        (set! prev-likelihood new-likelihood)
         (set! db-needs-update? #f))
       (defmatch (entry #t dist value) (hash-ref prev-db key-to-change))
       (defmatch (cons value* proposal-factor) (propose dist value))
