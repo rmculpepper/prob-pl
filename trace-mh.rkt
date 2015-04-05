@@ -123,11 +123,15 @@
 ;; ============================================================
 ;; Tracing evaluator
 
+;; We only trace (Expr,DB) pairs known to succeed, so we eliminate
+;; redundant error-checking below. We add checking that control flow
+;; (functions, if branches) is completely determined by values of S
+;; choices.
+
 ;; trace-top : Expr DB -> (list TraceExpr TraceMapping TraceStore Trace)
 ;; PRE: expr must not fail given db
 (define (trace-top expr db)
   (parameterize ((last-db db)
-                 (current-fail (lambda () (error 'trace "internal error: evaluation failed")))
                  (current-tmapping (make-hash))
                  (current-tstore (make-hash))
                  (current-rtrace null))
@@ -138,8 +142,7 @@
 (define (trace-expr expr env addr)
   (match expr
     [(? symbol? var)
-     (cond [(assoc var env) => cdr]
-           [else (error 'trace-expr "internal error: unbound variable: ~s" var)])]
+     (cdr (assoc var env))]
     [(expr:quote datum)
      (t:quote datum)]
     [(expr:lambda formals body)
@@ -152,7 +155,6 @@
      (match (trace-expr expr env addr)
        [(t:quote (? closure? clo))
         (t:quote (fixed clo))]
-       [(t:quote val) (error 'trace-expr "fix: cannot fix non-closure: ~e" val)]
        [_ (error 'trace-expr "fix: function not determined by S choices")])]
     [(expr:if e1 e2 e3)
      (match (trace-expr e1 env addr)
@@ -172,12 +174,11 @@
      (define v (trace-expr ve env addr))
      (trace-do-observe-sample d v)]
     [(expr:fail)
-     (trace-do-fail)]
+     (error 'trace-expr "fail: internal error")]
     [(expr:mem cs e)
      (match (trace-expr e env addr)
        [(t:quote (? function? f))
         (t:quote (memoized f (make-hash) (cons cs addr)))]
-       [(t:quote f) (error 'trace-expr "mem: not a function: ~e" f)]
        [_ (error 'trace-expr "mem: function not determined by S choices")])]))
 
 ;; trace-exprs : (Listof Expr) Env Addr -> (Listof TraceExpr)
@@ -199,9 +200,6 @@
     [(and p (primop _ _))
      (trace-apply-primop p args)]
     [(closure formals body env)
-     (unless (= (length formals) (length args))
-       (error 'trace-apply-function* "arity mismatch: expected ~s, given ~s"
-              (length formals) (length args)))
      (define env* (append (map cons formals args) env))
      (trace-expr body env* addr)]
     [(fixed inner-fun)
@@ -261,6 +259,3 @@
 (define (trace-do-observe-sample d v)
   (emit-and-exec-trace-statement (t:sample (gentv) d v))
   (t:quote #f))
-
-(define (trace-do-fail)
-  ((current-fail)))
