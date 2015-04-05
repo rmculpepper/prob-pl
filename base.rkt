@@ -130,6 +130,12 @@
                 bernoulli-dist poisson-dist
                 uniform-dist normal-dist)))
 
+;; dist-primop? : Symbol -> Boolean
+;; Indicates whether s is the name of a dist-building primop.
+(define (dist-primop? s)
+  (memq s '(bernoulli-dist poisson-dist
+            uniform-dist normal-dist)))
+
 ;; ============================================================
 ;; Example programs
 
