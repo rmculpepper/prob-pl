@@ -219,3 +219,12 @@
            [obs-flip (lambda (result) (observe-sample (bernoulli-dist 1prob) result))]
            [_o (repeat 50 (lambda () (obs-flip 1)))])
      fair)))
+
+(define p-circle
+  (parse-expr
+   '(let* ([soft-eq (lambda (a b) (observe-sample (normal-dist a 1) b))]
+           ;; ----
+           [x (N-sample (uniform-dist -2 2))]
+           [y (N-sample (uniform-dist -2 2))]
+           [_o (soft-eq (+ (* x x) (* y y)) 1)])
+     (list x y))))
