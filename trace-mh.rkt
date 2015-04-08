@@ -19,16 +19,17 @@
 
 ;; A Trace is (Listof TraceStmt)
 ;; A TraceStmt is one of
-;; - (t:primop TraceVar Primop (Listof TraceExpr))
-;; - (t:sample TraceVar TraceExpr TraceExpr)
+;; - (ts:primop TraceVar Primop (Listof TraceExpr))
+;; - (ts:sample TraceVar TraceExpr TraceExpr)
+(struct ts:primop (var primop args) #:transparent)
+(struct ts:sample (var dist value) #:transparent)
+
 ;; A TraceExpr is one of
 ;; - (t:quote Datum)
 ;; - (t:cons TraceExpr TraceExpr)
 ;; - (t:dist Symbol (Listof TraceExpr))
 ;; - TraceVar
 ;; A TraceVar is a Symbol
-(struct t:primop (var primop args) #:transparent)
-(struct t:sample (var dist value) #:transparent)
 (struct t:quote (datum) #:transparent)
 (struct t:cons (e1 e2) #:transparent)
 (struct t:dist (name args) #:transparent)
@@ -68,11 +69,11 @@
 ;; exec-trace-statement : TraceStatement TraceStore -> Real
 (define (exec-trace-statement ts tstore)
   (match ts
-    [(t:primop var (primop name) args)
+    [(ts:primop var (primop name) args)
      (tstore-set! tstore var
        (apply (primop-name->procedure name) (eval-trace-exprs args tstore)))
      1]
-    [(t:sample var dist-e val-e)
+    [(ts:sample var dist-e val-e)
      (define dist (eval-trace-expr dist-e tstore))
      (define val (eval-trace-expr val-e tstore))
      (tstore-set! tstore var val)
@@ -254,7 +255,7 @@
      (t:quote #f)]
     [[(primop _) _]
      (define var (gentv))
-     (emit-and-exec-trace-statement (t:primop var p args))
+     (emit-and-exec-trace-statement (ts:primop var p args))
      var]))
 
 (define (trace-do-S-sample de addr)
@@ -262,7 +263,7 @@
   ;; value is constant wrt trace, because this is an S choice
   (unless (constant-te? de)
     ;; need to rescore if dist changes
-    (emit-and-exec-trace-statement (t:sample (gentv) de (t:quote value))))
+    (emit-and-exec-trace-statement (ts:sample (gentv) de (t:quote value))))
   (hash-set! (current-tmapping) addr (list #t de (t:quote value)))
   (t:quote value))
 
@@ -273,9 +274,9 @@
   (define result-var (gentv))
   (hash-set! (current-tmapping) addr (list #f de mapped-var))
   (tstore-set! (current-tstore) mapped-var value)
-  (emit-and-exec-trace-statement (t:sample result-var de mapped-var))
+  (emit-and-exec-trace-statement (ts:sample result-var de mapped-var))
   result-var)
 
 (define (trace-do-observe-sample d v)
-  (emit-and-exec-trace-statement (t:sample (gentv) d v))
+  (emit-and-exec-trace-statement (ts:sample (gentv) d v))
   (t:quote #f))

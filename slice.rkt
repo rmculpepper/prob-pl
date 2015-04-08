@@ -13,12 +13,12 @@
 ;; slice-trace* : Trace Hash[Tvar => #t] -> Trace
 (define (slice-trace* trace rel)
   (match trace
-    [(cons (and (t:primop var primop args) ts) trace-rest)
+    [(cons (and (ts:primop var primop args) ts) trace-rest)
      (cond [(any-relevant? rel args)
             (let ([rel* (hash-set rel var #t)])
               (cons ts (slice-trace* trace-rest rel*)))]
            [else (slice-trace* trace-rest rel)])]
-    [(cons (and (t:sample var dist value) ts) trace-rest)
+    [(cons (and (ts:sample var dist value) ts) trace-rest)
      (cond [(relevant? rel value)
             (let ([rel* (hash-set rel var #t)])
               (cons ts (slice-trace* trace-rest rel*)))]
@@ -56,13 +56,13 @@
 ;; gibbs-reslice : Trace TraceVar TraceStore -> (list Trace Dist)
 (define (gibbs-reslice trace var tstore)
   (match trace
-    [(cons (and (t:sample dest-var dist-e var*) ts) trace-rest)
+    [(cons (and (ts:sample dest-var dist-e var*) ts) trace-rest)
      (unless (equal? var* var)
        (error 'gibbs-reslice "internal error: ~s != ~s" var var*))
      (define dist (eval-trace-expr dist-e tstore))
      (defmatch (list trace* dist*)
        (gibbs-reslice* trace-rest dest-var tstore dist))
-     (list (cons (t:sample dest-var (t:quote dist*) var) trace*) dist*)]
+     (list (cons (ts:sample dest-var (t:quote dist*) var) trace*) dist*)]
     [_ (error 'gibbs-reslice "internal error: bad trace")]))
 
 ;; gibbs-reslice* : Trace TraceVar TraceStore Dist -> (list Trace Dist)
@@ -71,9 +71,9 @@
     (match trace
       [(cons ts trace-rest)
        (match ts
-         [(t:primop dest-var p args)
+         [(ts:primop dest-var p args)
           (loop trace-rest main-dist (cons ts racc))]
-         [(t:sample dest-var dist-te value-te)
+         [(ts:sample dest-var dist-te value-te)
           (cond [(dist-te->dist-pattern dist-te main-var tstore)
                  => (lambda (dist-pattern)
                       ;; (eprintf "  ts = ~s\n" ts)

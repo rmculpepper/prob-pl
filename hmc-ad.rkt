@@ -35,9 +35,9 @@
 
 (define (reverse-mode-AD-statement ts)
   (match ts
-    [(t:primop var (primop opname) args)
+    [(ts:primop var (primop opname) args)
      (reverse-mode-AD-primop var opname args)]
-    [(t:sample var dist-e value-e)
+    [(ts:sample var dist-e value-e)
      (reverse-mode-AD-sample var dist-e value-e)]))
 
 (define (reverse-mode-AD-primop dest-var opname args)
@@ -125,10 +125,10 @@
 ;; ----
 
 (define trace1
-  (list (t:sample 'tv2 (t:quote (uniform-dist 0 1)) 'tv1)
-        (t:primop 'tv3 (primop '*) (list 'tv2 (t:quote 2)))
-        (t:primop 'tv4 (primop '+) (list 'tv3 (t:quote -1)))
-        (t:sample 'tv5 (t:dist 'normal-dist (list 'tv4 (t:quote 1))) (t:quote 0.3))))
+  (list (ts:sample 'tv2 (t:quote (uniform-dist 0 1)) 'tv1)
+        (ts:primop 'tv3 (primop '*) (list 'tv2 (t:quote 2)))
+        (ts:primop 'tv4 (primop '+) (list 'tv3 (t:quote -1)))
+        (ts:sample 'tv5 (t:dist 'normal-dist (list 'tv4 (t:quote 1))) (t:quote 0.3))))
 
 (define tstore1 (make-hash '((tv1 . 0.7))))
 (current-tstore tstore1)
