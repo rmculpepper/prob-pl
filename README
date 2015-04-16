@@ -10,3 +10,6 @@ lightweight-mh.rkt <---- sampler-lightweight.rkt
       ^
       |
   trace-mh.rkt <-------- sampler-trace.rkt
+      ^
+      |
+   slice.rkt <---------- sampler-slice.rkt

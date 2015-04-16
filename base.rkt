@@ -217,7 +217,8 @@
            [fair (S-sample (bernoulli-dist 9/10))]
            [1prob (if (= fair 1) 1/2 (N-sample (beta-dist 1 1)))]
            [obs-flip (lambda (result) (observe-sample (bernoulli-dist 1prob) result))]
-           [_o (repeat 50 (lambda () (obs-flip 1)))])
+           [_o (repeat 50 (lambda () (obs-flip 1)))]
+           [_o2 (observe-sample (uniform-dist 0 1prob) 0.2)])
      fair)))
 
 (define p-circle
