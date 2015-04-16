@@ -223,7 +223,7 @@
 
 (define p-circle
   (parse-expr
-   '(let* ([soft-eq (lambda (a b) (observe-sample (normal-dist a 1) b))]
+   '(let* ([soft-eq (lambda (a b) (observe-sample (normal-dist b .2) a))]
            ;; ----
            [x (N-sample (uniform-dist -2 2))]
            [y (N-sample (uniform-dist -2 2))]
