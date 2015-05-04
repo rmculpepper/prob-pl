@@ -4,7 +4,8 @@
          gamble
          "base.rkt"
          "lightweight-mh.rkt"
-         "trace-mh.rkt")
+         "trace-mh.rkt"
+         (only-in "sampler-lightweight.rkt" [sampler% sampler-base%]))
 (provide (all-defined-out)
          (all-from-out "base.rkt")
          (all-from-out "lightweight-mh.rkt")
@@ -20,41 +21,29 @@
 ;; ------------------------------------------------------------
 
 (define sampler%
-  (class object%
-    (init-field expr
-                [verbose? #f])
+  (class sampler-base%
     (super-new)
+    (inherit-field expr
+                   prev-result
+                   prev-likelihood
+                   prev-db)
+    (inherit propose
+             vprintf)
 
-    (field [prev-result #f]
-           [prev-likelihood #f]
-           [prev-db #f]
-           [db-needs-update? #f]
-
+    (field [db-needs-update? #f]
            [prev-trace #f]
            [prev-result-te #f]
            [prev-tmapping #f]
            [prev-tstore #f])
 
-    ;; Initialize
-    (let loop ()
-      (match (eval-top expr '#hash())
-        [(list result likelihood db)
-         (cond [(> likelihood 0)
-                (set! prev-result result)
-                (set! prev-likelihood likelihood)
-                (set! prev-db db)]
-               [else (loop)])]))
-    (when (zero? (hash-count prev-db))
-      (error 'mh "program is deterministic"))
-
-    (define/public (sample)
+    (define/override (sample)
       (define key-to-change (list-ref (hash-keys prev-db) (random (hash-count prev-db))))
       (cond [(entry-structural? (hash-ref prev-db key-to-change))
              (sample-S key-to-change)]
             [else
              (sample-N key-to-change)]))
 
-    (define/public (sample-S key-to-change)
+    (define/override (sample-S key-to-change)
       (when db-needs-update?
         (vprintf "S: updating db\n")
         (db-add-tstore! prev-db prev-tmapping prev-tstore)
@@ -67,34 +56,14 @@
           (error 'sample-S "db changed\n  from: ~v\n  to: ~v" prev-db new-db))
         (set! prev-likelihood new-likelihood)
         (set! db-needs-update? #f))
-      (defmatch (entry #t dist value) (hash-ref prev-db key-to-change))
-      (defmatch (cons value* proposal-factor) (propose dist value))
-      (define modified-prev-db (hash-copy prev-db))
-      (hash-set! modified-prev-db key-to-change (entry #t dist value*))
-      (defmatch (list new-result new-likelihood new-db)
-        (eval-top expr modified-prev-db))
-      (define accept-threshold
-        ;; (Qbackward / Qforward) * (Pnew / Pprev)
-        (* proposal-factor
-           (/ (hash-count prev-db) (hash-count new-db))
-           (/ new-likelihood prev-likelihood)
-           (for/product ([(key old-entry) (in-hash prev-db)]
-                         #:when (hash-has-key? new-db key))
-                        (define new-entry (hash-ref new-db key))
-                        ;; ASSERT: (entry-value new-entry) = (entry-value old-entry)
-                        (/ (dist-pdf (entry-dist new-entry) (entry-value new-entry))
-                           (dist-pdf (entry-dist old-entry) (entry-value old-entry))))))
-      (cond [(< (random) accept-threshold)
-             (set! prev-result new-result)
-             (set! prev-likelihood new-likelihood)
-             (set! prev-db new-db)
-             (set! prev-trace #f)
-             (set! prev-result-te #f)
-             (set! prev-tmapping #f)
-             (set! prev-tstore #f)
-             new-result]
-            [else
-             prev-result]))
+      (super sample-S key-to-change))
+
+    (define/override (accept-S new-result new-likelihood new-db)
+      (super accept-S new-result new-likelihood new-db)
+      (set! prev-trace #f)
+      (set! prev-result-te #f)
+      (set! prev-tmapping #f)
+      (set! prev-tstore #f))
 
     (define/public (sample-N key-to-change)
       (cond [prev-trace
@@ -126,15 +95,7 @@
              (set! prev-result result)
              result]
             [else prev-result]))
-
-    (define/public (vprintf fmt . args)
-      (when verbose? (apply eprintf fmt args)))
     ))
-
-;; propose : Dist Value -> (cons Value Real)
-(define (propose dist value)
-  (defmatch (cons value* logfactor) (dist-drift dist value 0.5))
-  (cons value* (exp logfactor)))
 
 ;; ============================================================
 
