@@ -1,5 +1,6 @@
 #lang racket/base
 (require (rename-in racket/match [match-define defmatch])
+         racket/class
          gamble
          "base.rkt"
          "lightweight-mh.rkt")
@@ -8,52 +9,94 @@
 ;; ============================================================
 ;; MH Sampling
 
-(define (mh-samples e n)
-  (define results '())
+(define (mh-samples expr n #:verbose? [verbose? #f])
+  (define s (new sampler% (expr expr) (verbose? verbose?)))
+  (for/list ([i n]) (send s sample)))
 
-  (define-values (prev-result prev-likelihood prev-db)
+;; ------------------------------------------------------------
+
+(define sampler%
+  (class object%
+    (init-field expr
+                ;; proposal-method : (U 'resample 'drift)
+                [proposal-method 'resample]
+                [verbose? #f])
+    (super-new)
+
+    (field [prev-result #f]
+           [prev-likelihood #f]
+           [prev-db #f])
+
+    ;; Initialize
     (let loop ()
-      (match (eval-top e '#hash())
+      (match (eval-top expr '#hash())
         [(list result likelihood db)
          (cond [(> likelihood 0)
-                (values result likelihood db)]
-               [else (loop)])])))
+                (set! prev-result result)
+                (set! prev-likelihood likelihood)
+                (set! prev-db db)]
+               [else (loop)])]))
+    ;; For simplicity, just raise an error if no random choices.
+    (when (zero? (hash-count prev-db))
+      (error 'mh "program is deterministic"))
 
-  (for ([i n])
-    (define modified-last-db (hash-copy prev-db))
-    (define proposal-factor (propose! modified-last-db))
-    (defmatch (list new-result new-likelihood new-db)
-      (eval-top e modified-last-db))
-    (define accept-threshold
-      ;; (Qbackward / Qforward) * (Pnew / Pprev)
-      (* proposal-factor
-         (/ (hash-count prev-db) (hash-count new-db))
-         (/ new-likelihood prev-likelihood)
-         (for/product ([(key old-entry) (in-hash prev-db)]
-                       #:when (hash-has-key? new-db key))
-           (define new-entry (hash-ref new-db key))
-           ;; ASSERT: (entry-value new-entry) = (entry-value old-entry)
-           (/ (dist-pdf (entry-dist new-entry) (entry-value new-entry))
-              (dist-pdf (entry-dist old-entry) (entry-value old-entry))))))
-    (cond [(< (random) accept-threshold)
-           (set! results (cons new-result results))
-           (set! prev-result new-result)
-           (set! prev-likelihood new-likelihood)
-           (set! prev-db new-db)]
-          [else
-           (set! results (cons prev-result results))]))
-  (reverse results))
+    (define/public (sample)
+      (define key-to-change (list-ref (hash-keys prev-db) (random (hash-count prev-db))))
+      (sample-S key-to-change))
 
-;; propose! : DB -> Real
-(define (propose! db)
-  (define size (hash-count db))
-  (when (zero? size) (error 'propose! "program is deterministic"))
-  (define i (random size))
-  (define key-to-change (list-ref (hash-keys db) i))
-  (defmatch (entry structural? dist value) (hash-ref db key-to-change))
-  (defmatch (cons value* logfactor) (dist-drift dist value 0.5))
-  (hash-set! db key-to-change (entry structural? dist value*))
-  (exp logfactor))
+    (define/public (sample-S key-to-change)
+      (defmatch (entry _ dist value) (hash-ref prev-db key-to-change))
+      (defmatch (cons value* proposal-factor) (propose dist value))
+      (define modified-prev-db (hash-copy prev-db))
+      (hash-set! modified-prev-db key-to-change (entry #t dist value*))
+      (defmatch (list new-result new-likelihood new-db)
+        (eval-top expr modified-prev-db))
+      ;; accept-threshold = (Qbackward / Qforward) * (Pnew / Pprev)
+      (define accept-threshold
+        (* proposal-factor
+           (/ (hash-count prev-db) (hash-count new-db))
+           (/ new-likelihood prev-likelihood)
+           (for/product ([(key old-entry) (in-hash prev-db)]
+                         #:when (hash-has-key? new-db key))
+             (define new-entry (hash-ref new-db key))
+             ;; ASSERT: except for key-to-change,
+             ;;   (entry-value new-entry) = (entry-value old-entry)
+             (/ (dist-pdf (entry-dist new-entry) (entry-value new-entry))
+                (dist-pdf (entry-dist old-entry) (entry-value old-entry))))))
+      (cond [(< (random) accept-threshold)
+             (accept-S new-result new-likelihood new-db)
+             new-result]
+            [else
+             (reject-S)
+             prev-result]))
+
+    (define/public (accept-S new-result new-likelihood new-db)
+      (set! prev-result new-result)
+      (set! prev-likelihood new-likelihood)
+      (set! prev-db new-db))
+
+    (define/public (reject-S)
+      (void))
+
+    (define/public (vprintf fmt . args)
+      (when verbose? (apply eprintf fmt args)))
+
+    ;; propose : Dist Value -> (cons Value Real)
+    ;; Returns new value and Q(x'->x)/Q(x->x') ratio (ie, Reverse/Forward)
+    (define/public (propose dist value)
+      (case proposal-method
+        [(resample) (propose/resample dist value)]
+        [(drift) (propose/drift dist value)]
+        [else (error 'propose "unknown proposal method: ~e" proposal-method)]))
+
+    (define/public (propose/drift dist value)
+      (defmatch (cons value* logfactor) (dist-drift dist value 0.5))
+      (cons value* (exp logfactor)))
+
+    (define/public (propose/resample dist value)
+      (define value* (dist-sample dist))
+      (cons value* (/ (dist-pdf dist value) (dist-pdf dist value*))))
+    ))
 
 ;; ============================================================
 
