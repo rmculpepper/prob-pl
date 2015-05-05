@@ -24,20 +24,23 @@
   (class sampler-base%
     (super-new)
     (inherit-field expr
+                   accept-count
+                   sample-count
                    prev-result
                    prev-likelihood
                    prev-db)
     (inherit propose
              vprintf)
 
-    (field [db-needs-update? #f]
-           [prev-trace #f]
-           [prev-result-te #f]
-           [prev-tmapping #f]
-           [prev-tstore #f])
+    (field [db-needs-update? #f]   ;; Boolean
+           [prev-trace #f]         ;; Trace
+           [prev-result-te #f]     ;; TraceExpr
+           [prev-tmapping #f]      ;; TraceMapping
+           [prev-tstore #f])       ;; TraceStore
 
     (define/override (sample)
       (define key-to-change (list-ref (hash-keys prev-db) (random (hash-count prev-db))))
+      (set! sample-count (add1 sample-count))
       (cond [(entry-structural? (hash-ref prev-db key-to-change))
              (sample-S key-to-change)]
             [else
@@ -74,7 +77,11 @@
              (set! prev-trace trace)
              (set! prev-result-te result-te)
              (set! prev-tmapping tmapping)
-             (set! prev-tstore tstore)])
+             (set! prev-tstore tstore)
+             (sample-N-reset)])
+      (sample-N* key-to-change))
+
+    (define/public (sample-N* key-to-change)
       (defmatch (list #f dist-te value-te)
         (hash-ref prev-tmapping key-to-change))
       (define dist (eval-trace-expr dist-te prev-tstore))
@@ -90,11 +97,18 @@
            proposal-factor
            (/ current-l prev-l)))
       (cond [(< (random) accept-threshold)
-             (set! db-needs-update? #t)
-             (set! prev-tstore current-tstore)
-             (set! prev-result result)
+             (accept-N result current-tstore)
              result]
             [else prev-result]))
+
+    (define/public (accept-N result current-tstore)
+      (set! accept-count (add1 accept-count))
+      (set! prev-result result)
+      (set! prev-tstore current-tstore)
+      (set! db-needs-update? #t))
+
+    (define/public (sample-N-reset)
+      (void))
     ))
 
 ;; ============================================================

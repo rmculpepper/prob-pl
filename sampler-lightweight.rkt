@@ -23,9 +23,12 @@
                 [verbose? #f])
     (super-new)
 
-    (field [prev-result #f]
-           [prev-likelihood #f]
-           [prev-db #f])
+    (field [prev-result #f]        ;; Value
+           [prev-likelihood #f]    ;; Real
+           [prev-db #f]            ;; DB
+
+           [accept-count 0]        ;; Nat
+           [sample-count 0])       ;; Nat
 
     ;; Initialize
     (let loop ()
@@ -42,6 +45,7 @@
 
     (define/public (sample)
       (define key-to-change (list-ref (hash-keys prev-db) (random (hash-count prev-db))))
+      (set! sample-count (add1 sample-count))
       (sample-S key-to-change))
 
     (define/public (sample-S key-to-change)
@@ -71,6 +75,7 @@
              prev-result]))
 
     (define/public (accept-S new-result new-likelihood new-db)
+      (set! accept-count (add1 accept-count))
       (set! prev-result new-result)
       (set! prev-likelihood new-likelihood)
       (set! prev-db new-db))
