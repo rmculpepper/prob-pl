@@ -5,6 +5,9 @@
          "base.rkt"
          "lightweight-mh.rkt"
          "trace-mh.rkt"
+         "trace-slice.rkt"
+         "trace-gibbs.rkt"
+         "trace-hmc.rkt"
          (only-in "sampler-lightweight.rkt" [sampler% sampler-base%]))
 (provide (all-defined-out)
          (all-from-out "base.rkt")
@@ -14,15 +17,19 @@
 ;; ============================================================
 ;; MH Sampler -- combining classic eval and tracing
 
-(define (mh-samples expr n #:verbose? [verbose? #f])
-  (define s (new sampler% (expr expr) (verbose? verbose?)))
+(define (mh-samples expr n
+                    #:N-method [method 'trace]
+                    #:verbose? [verbose? #f])
+  (define s (new sampler% (expr expr) (verbose? verbose?) (N-method method)))
   (for/list ([i n]) (send s sample)))
 
 ;; ------------------------------------------------------------
 
 (define sampler%
   (class sampler-base%
-    (super-new)
+    (init-field [N-method       'trace]
+                [hmc-L           10]
+                [hmc-delta       0.1])
     (inherit-field expr
                    accept-count
                    sample-count
@@ -31,12 +38,14 @@
                    prev-db)
     (inherit propose
              vprintf)
+    (super-new)
 
     (field [db-needs-update? #f]   ;; Boolean
            [prev-trace #f]         ;; Trace
            [prev-result-te #f]     ;; TraceExpr
            [prev-tmapping #f]      ;; TraceMapping
-           [prev-tstore #f])       ;; TraceStore
+           [prev-tstore #f]        ;; TraceStore
+           [prev-slicemap #f])     ;; Hash[ TraceVar => Trace ]
 
     (define/override (sample)
       (define key-to-change (list-ref (hash-keys prev-db) (random (hash-count prev-db))))
@@ -66,7 +75,8 @@
       (set! prev-trace #f)
       (set! prev-result-te #f)
       (set! prev-tmapping #f)
-      (set! prev-tstore #f))
+      (set! prev-tstore #f)
+      (set! prev-slicemap #f))
 
     (define/public (sample-N key-to-change)
       (cond [prev-trace
@@ -79,18 +89,24 @@
              (set! prev-tmapping tmapping)
              (set! prev-tstore tstore)
              (sample-N-reset)])
-      (sample-N* key-to-change))
+      (case N-method
+        [(trace sliced-trace gibbs)
+         (sample-N/single-site key-to-change)]
+        [(hmc)
+         (sample-N/hmc)]
+        [else (error 'sample-N "unknown sampling method: ~s\n" N-method)]))
 
-    (define/public (sample-N* key-to-change)
+    (define/public (sample-N/single-site key-to-change)
       (defmatch (list #f dist-te value-te)
         (hash-ref prev-tmapping key-to-change))
       (define dist (eval-trace-expr dist-te prev-tstore))
       (define value (eval-trace-expr value-te prev-tstore))
       (define current-tstore (hash-copy prev-tstore))
-      (define prev-l (exec-trace prev-trace current-tstore))
-      (defmatch (cons value* proposal-factor) (propose dist value))
+      (defmatch (list use-trace value* proposal-factor)
+        (single-site/method value-te current-tstore dist value))
+      (define prev-l (exec-trace use-trace current-tstore))
       (tstore-set! current-tstore value-te value*)
-      (define current-l (exec-trace prev-trace current-tstore))
+      (define current-l (exec-trace use-trace current-tstore))
       (define result (eval-trace-expr prev-result-te current-tstore))
       (define accept-threshold
         (* 1 ;; size of db doesn't change
@@ -101,6 +117,62 @@
              result]
             [else prev-result]))
 
+    ;; single-site/method : TraceExpr TraceStore Dist Value -> (list Trace Value Real)
+    (define/public (single-site/method value-te current-tstore dist value)
+      (case N-method
+        [(trace)
+         (defmatch (cons value* proposal-factor) (propose dist value))
+         (list prev-trace value* proposal-factor)]
+        [(sliced-trace)
+         (defmatch (cons value* proposal-factor) (propose dist value))
+         (list (get-sliced-trace value-te) value* proposal-factor)]
+        [(gibbs)
+         (define sliced-trace (get-sliced-trace value-te))
+         (defmatch (list gibbs-trace cond-dist)
+           (gibbs-reslice sliced-trace value-te current-tstore))
+         (vprintf "N: gibbs eliminated ~s rescores\n"
+                  (- (length (filter ts:sample? sliced-trace))
+                     (length (filter ts:sample? gibbs-trace))))
+         (vprintf "N: gibbs trace = \n")
+         (for ([ts gibbs-trace]) (vprintf "    ~v\n" ts))
+         (define value* (dist-sample cond-dist))
+         (define proposal-factor 1)
+         (list gibbs-trace value* proposal-factor)]))
+
+    (define/public (get-sliced-trace value-te)
+      (cond [(hash-ref prev-slicemap value-te #f)
+             => (lambda (s)
+                  (vprintf "N: reusing sliced trace\n")
+                  s)]
+            [else
+             (vprintf "N: slicing trace wrt ~e\n" value-te)
+             (define s (slice-trace prev-trace value-te))
+             (hash-set! prev-slicemap value-te s)
+             s]))
+
+    (define/public (sample-N/hmc)
+      ;; We change all non-structural choices simultaneously.
+      (cond [prev-trace
+             (vprintf "N: reusing trace\n")]
+            [else
+             (vprintf "N: tracing\n")
+             (defmatch (list result-te tmapping tstore trace) (trace-top expr prev-db))
+             (set! prev-trace trace)
+             (set! prev-result-te result-te)
+             (set! prev-tmapping tmapping)
+             (set! prev-tstore tstore)])
+      (define N-vars
+        (filter symbol? (for/list ([(_addr sdv) (in-hash prev-tmapping)]) (caddr sdv))))
+      (defmatch (list current-tstore logthreshold)
+        (leapfrog prev-trace hmc-L hmc-delta N-vars prev-tstore))
+      (define result (eval-trace-expr prev-result-te current-tstore))
+      (define accept-threshold (exp logthreshold))
+      (cond [(< (random) accept-threshold)
+             (accept-N result current-tstore)
+             result]
+            [else
+             prev-result]))
+
     (define/public (accept-N result current-tstore)
       (set! accept-count (add1 accept-count))
       (set! prev-result result)
@@ -108,12 +180,12 @@
       (set! db-needs-update? #t))
 
     (define/public (sample-N-reset)
-      (void))
+      (set! prev-slicemap (make-hash)))
     ))
 
 ;; ============================================================
 
-(require (only-in plot plot density plot-new-window?)
+(require (only-in plot plot density plot-new-window? points lines)
          (only-in gamble/viz hist))
 (provide hist
          plot-density)
@@ -128,13 +200,33 @@
   (/ (apply + samples) (length samples)))
 
 (module+ test
-  (printf "p-cd: want 9.5, got: ~s\n"
-          (samples->mean (mh-samples p-cd 1000)))
-  (printf "p-geometric: got ~s\n"
-          (mh-samples p-geometric 10))
-  (printf "p-mem: got ~s\n"
-          (mh-samples p-mem 3))
-  (printf "p-mem2: got ~s\n"
-          (mh-samples p-mem 3))
-  (printf "p-match: got ~s\n"
-          (mh-samples p-match 10)))
+  (define (do-tests method [do-discrete? #t])
+    (printf "** ~s\n" method)
+    (printf "p-cd: want 9.5, got: ~s\n"
+            (samples->mean (mh-samples p-cd 1000 #:N-method method)))
+    (when do-discrete?
+      (printf "p-geometric: got ~s\n"
+              (mh-samples p-geometric 10 #:N-method method))
+      (printf "p-mem: got ~s\n"
+              (mh-samples p-mem 3 #:N-method method))
+      (printf "p-mem2: got ~s\n"
+              (mh-samples p-mem 3 #:N-method method)))
+    (printf "p-match: got ~s\n"
+            (mh-samples p-match 10 #:N-method method))
+    (newline))
+
+  (do-tests 'trace)
+  (do-tests 'sliced-trace)
+  (do-tests 'gibbs)
+  (do-tests 'hmc #f))
+
+;; p-match is a good example for slicing
+
+;; circle-demo for hmc
+(define (circle-demo N)
+  (define s (new sampler% (expr p-circle) (N-method 'hmc)))
+  (define pts (for/list ([i N]) (send s sample)))
+  (eprintf "accept = ~s, reject = ~s\n"
+           (get-field accept-count s) (get-field reject-count s))
+  (plot (list (points pts)
+              (lines pts #:color "pink"))))
