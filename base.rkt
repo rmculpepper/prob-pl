@@ -127,7 +127,8 @@
     (values
      (primop-alist + - * / = < > <= >= zero?
                    not
-                   cons list car cdr null? pair?)
+                   cons list car cdr null? pair?
+                   printf void hash-ref)
      (primop-alist bernoulli-dist binomial-dist categorical-dist
                    geometric-dist poisson-dist
                    beta-dist cauchy-dist exponential-dist gamma-dist
