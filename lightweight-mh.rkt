@@ -19,8 +19,8 @@
 ;; Evaluator implicit state (parameters)
 
 ;; current-likelihood : Parameterof Real
-;; Accumulates likelihood of observations
-(define current-likelihood (make-parameter 1))
+;; Accumulates log likelihood of observations
+(define current-likelihood (make-parameter 0))
 
 ;; current-fail : Parameterof (-> (escapes))
 (define current-fail (make-parameter (lambda () (error 'fail))))
@@ -41,7 +41,7 @@
 ;; trace. Produces a result, likelihood of observations, and a new DB.
 (define (eval-top expr db)
   (let/ec escape
-    (parameterize ((current-likelihood 1)
+    (parameterize ((current-likelihood 0)
                    (current-fail (lambda () (escape (list 'failed 0 #f))))
                    (last-db db)
                    (current-db (make-hash)))
@@ -80,7 +80,7 @@
      (define d (eval-expr de env addr))
      (define v (eval-expr ve env addr))
      (unless (dist? d) (error 'observe-sample "not a dist: ~e" d))
-     (current-likelihood (* (current-likelihood) (dist-pdf d v)))
+     (current-likelihood (+ (current-likelihood) (dist-pdf d v #t)))
      #f]
     [(expr:fail)
      ((current-fail))]
@@ -119,7 +119,7 @@
          => (lambda (last-entry)
               (match last-entry
                 [(entry _ last-dist value)
-                 (cond [(positive? (dist-pdf d value))
+                 (cond [(> (dist-pdf d value #t) -inf.0)
                         (hash-set! (current-db) addr (entry structural? d value))
                         value]
                        [else

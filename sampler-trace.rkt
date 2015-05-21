@@ -109,10 +109,10 @@
       (define current-l (exec-trace use-trace current-tstore))
       (define result (eval-trace-expr prev-result-te current-tstore))
       (define accept-threshold
-        (* 1 ;; size of db doesn't change
+        (+ 0 ;; size of db doesn't change
            proposal-factor
-           (/ current-l prev-l)))
-      (cond [(< (random) accept-threshold)
+           (- current-l prev-l)))
+      (cond [(< (log (random)) accept-threshold)
              (accept-N result current-tstore)
              result]
             [else prev-result]))
@@ -136,7 +136,7 @@
          (vprintf "N: gibbs trace = \n")
          (for ([ts gibbs-trace]) (vprintf "    ~v\n" ts))
          (define value* (dist-sample cond-dist))
-         (define proposal-factor 1)
+         (define proposal-factor 0)
          (list gibbs-trace value* proposal-factor)]))
 
     (define/public (get-sliced-trace value-te)
@@ -166,8 +166,8 @@
       (defmatch (list current-tstore logthreshold)
         (leapfrog prev-trace hmc-L hmc-delta N-vars prev-tstore))
       (define result (eval-trace-expr prev-result-te current-tstore))
-      (define accept-threshold (exp logthreshold))
-      (cond [(< (random) accept-threshold)
+      (define accept-threshold logthreshold)
+      (cond [(< (log (random)) accept-threshold)
              (accept-N result current-tstore)
              result]
             [else

@@ -61,9 +61,9 @@
 ;; ------------------------------------------------------------
 
 ;; exec-trace : Trace TraceStore -> Real
-;; Returns the product of the sample densities.
+;; Returns the log of the product of the sample densities.
 (define (exec-trace t tstore)
-  (for/product ([ts (in-list t)])
+  (for/sum ([ts (in-list t)])
     (exec-trace-statement ts tstore)))
 
 ;; exec-trace-statement : TraceStatement TraceStore -> Real
@@ -77,7 +77,7 @@
      (define dist (eval-trace-expr dist-e tstore))
      (define val (eval-trace-expr val-e tstore))
      (tstore-set! tstore var val)
-     (dist-pdf dist val)]))
+     (dist-pdf dist val #t)]))
 
 ;; eval-trace-expr : TraceExpr TraceStore -> Value
 (define (eval-trace-expr texpr tstore)

@@ -32,9 +32,10 @@
 
     ;; Initialize
     (let loop ()
+      ;; (eprintf "Trying to initialize\n")
       (match (eval-top expr '#hash())
         [(list result likelihood db)
-         (cond [(> likelihood 0)
+         (cond [(> likelihood -inf.0)
                 (set! prev-result result)
                 (set! prev-likelihood likelihood)
                 (set! prev-db db)]
@@ -42,6 +43,7 @@
     ;; For simplicity, just raise an error if no random choices.
     (when (zero? (hash-count prev-db))
       (error 'mh "program is deterministic"))
+    ;; (eprintf "Initialized\n")
 
     (define/public (sample)
       (define key-to-change (list-ref (hash-keys prev-db) (random (hash-count prev-db))))
@@ -57,17 +59,17 @@
         (eval-top expr modified-prev-db))
       ;; accept-threshold = (Qbackward / Qforward) * (Pnew / Pprev)
       (define accept-threshold
-        (* proposal-factor
-           (/ (hash-count prev-db) (hash-count new-db))
-           (/ new-likelihood prev-likelihood)
-           (for/product ([(key old-entry) (in-hash prev-db)]
-                         #:when (hash-has-key? new-db key))
+        (+ proposal-factor
+           (- (log (hash-count prev-db)) (log (hash-count new-db)))
+           (- new-likelihood prev-likelihood)
+           (for/sum ([(key old-entry) (in-hash prev-db)]
+                     #:when (hash-has-key? new-db key))
              (define new-entry (hash-ref new-db key))
              ;; ASSERT: except for key-to-change,
              ;;   (entry-value new-entry) = (entry-value old-entry)
-             (/ (dist-pdf (entry-dist new-entry) (entry-value new-entry))
-                (dist-pdf (entry-dist old-entry) (entry-value old-entry))))))
-      (cond [(< (random) accept-threshold)
+             (- (dist-pdf (entry-dist new-entry) (entry-value new-entry) #t)
+                (dist-pdf (entry-dist old-entry) (entry-value old-entry) #t)))))
+      (cond [(< (log (random)) accept-threshold)
              (accept-S new-result new-likelihood new-db)
              new-result]
             [else
@@ -96,11 +98,11 @@
 
     (define/public (propose/drift dist value)
       (defmatch (cons value* logfactor) (dist-drift dist value 0.5))
-      (cons value* (exp logfactor)))
+      (cons value* logfactor))
 
     (define/public (propose/resample dist value)
       (define value* (dist-sample dist))
-      (cons value* (/ (dist-pdf dist value) (dist-pdf dist value*))))
+      (cons value* (- (dist-pdf dist value #t) (dist-pdf dist value* #t))))
     ))
 
 ;; ============================================================

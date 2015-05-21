@@ -100,7 +100,7 @@
 ;;         -> (list TraceStore Real)
 ;; Returns final state and log-threshold for acceptance.
 (define (leapfrog trace L delta xvars xstore_0)
-  (define Uenergy_0 (- (log (exec-trace trace xstore_0))))
+  (define Uenergy_0 (- (exec-trace trace xstore_0)))
   (define Ugradient_0
     (parameterize ((current-tstore xstore_0))
       (AD/Uenergy trace)))
@@ -144,7 +144,7 @@
      (for/hash ([(xvari pi) (in-hash pstore_td)])
        (values xvari (+ (hash-ref xstore_t xvari) (* delta pi))))))
   (when #f (printf "  xstore'' = ~s\n" xstore_tdd))
-  (define Uenergy_tdd (- (log (exec-trace trace xstore_tdd))))
+  (define Uenergy_tdd (- (exec-trace trace xstore_tdd)))
   (define Ugradient_tdd
     (parameterize ((current-tstore xstore_tdd))
       (AD/Uenergy trace)))
