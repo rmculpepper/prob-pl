@@ -7,8 +7,6 @@
 (provide (all-defined-out))
 
 ;; TODO
-;; - common sampler code?
-;; - logspace
 ;; - partial momentum preservation across steps?
 ;;   (makes showing intermediate leapfrog steps easy)
 ;; - do AD as Trace -> Trace transformation
