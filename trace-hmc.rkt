@@ -104,16 +104,23 @@
   (define Ugradient_0
     (parameterize ((current-tstore xstore_0))
       (AD/Uenergy trace)))
+  (define p-dist (normal-dist 0 1))
   (define pstore_0
     (for/hash ([xvar xvars])
-      (values xvar (dist-sample (normal-dist 0 1)))))
+      (values xvar (dist-sample p-dist))))
   (define-values (xstore_L pstore_L Uenergy_L Ugradient_L)
     (for/fold ([xstore_t xstore_0] [pstore_t pstore_0]
                [Uenergy_t Uenergy_0] [Ugradient_t Ugradient_0])
               ([ti (in-range L)])
       (when #f (print-leapfrog-state ti xstore_t pstore_t Uenergy_t Ugradient_t))
+      (when #t
+        (eprintf "energy_~a = ~s + ~s = ~s\n" ti
+                 Uenergy_t (Kenergy pstore_t) (+ Uenergy_t (Kenergy pstore_t))))
       (leapfrog-step trace delta xstore_t pstore_t Ugradient_t)))
   (when #f (print-leapfrog-state L xstore_L pstore_L Uenergy_L Ugradient_L))
+  (when #t
+    (eprintf "energy_L = ~s + ~s = ~s\n"
+             Uenergy_L (Kenergy pstore_L) (+ Uenergy_L (Kenergy pstore_L))))
   (list xstore_L
         (- (+ Uenergy_0 (Kenergy pstore_0))
            (+ Uenergy_L (Kenergy pstore_L)))))
