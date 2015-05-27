@@ -115,14 +115,14 @@
                [Uenergy_t Uenergy_0] [Ugradient_t Ugradient_0])
               ([ti (in-range L)])
       (when #f (print-leapfrog-state ti xstore_t pstore_t Uenergy_t Ugradient_t))
-      (when #t
-        (eprintf "energy_~a = ~s + ~s = ~s\n" ti
-                 Uenergy_t (Kenergy pstore_t) (+ Uenergy_t (Kenergy pstore_t))))
+      (vprintf 'hmc "energy_~a = ~s + ~s = ~s\n" ti
+               Uenergy_t (Kenergy pstore_t) (+ Uenergy_t (Kenergy pstore_t)))
       (leapfrog-step trace delta xstore_t pstore_t Ugradient_t)))
   (when #f (print-leapfrog-state L xstore_L pstore_L Uenergy_L Ugradient_L))
-  (when #t
-    (eprintf "energy_L = ~s + ~s = ~s\n"
-             Uenergy_L (Kenergy pstore_L) (+ Uenergy_L (Kenergy pstore_L))))
+  (vprintf 'hmc "energy_L = ~s + ~s = ~s\n"
+           Uenergy_L (Kenergy pstore_L) (+ Uenergy_L (Kenergy pstore_L)))
+  (vprintf 'hmc "distance moved = ~s\n"
+           (distance xstore_0 xstore_L))
   (list xstore_L
         (- (+ Uenergy_0 (Kenergy pstore_0))
            (+ Uenergy_L (Kenergy pstore_L)))))
@@ -133,6 +133,12 @@
   (printf "  pstore = ~s\n" pstore)
   (printf "  Uenergy = ~s\n" Uenergy)
   (printf "  Ugradient = ~s\n" Ugradient))
+
+(define (distance xstore1 xstore2)
+  (sqrt
+   (for/sum ([(k v1) (in-hash xstore1)])
+     (define v2 (hash-ref xstore2 k))
+     (* (- v1 v2) (- v1 v2)))))
 
 
 ;; Kenergy : PStore -> Real

@@ -9,8 +9,8 @@
 ;; ============================================================
 ;; MH Sampling
 
-(define (mh-samples expr n #:verbose? [verbose? #f])
-  (define s (new sampler% (expr expr) (verbose? verbose?)))
+(define (mh-samples expr n)
+  (define s (new sampler% (expr expr)))
   (for/list ([i n]) (send s sample)))
 
 ;; ------------------------------------------------------------
@@ -19,8 +19,7 @@
   (class object%
     (init-field expr
                 ;; proposal-method : (U 'resample 'drift)
-                [proposal-method 'resample]
-                [verbose? #f])
+                [proposal-method 'resample])
     (super-new)
 
     (field [prev-result #f]        ;; Value
@@ -32,6 +31,7 @@
 
     ;; Initialize
     (let loop ()
+      (vprintf 'init "Trying to initialize\n")
       ;; (eprintf "Trying to initialize\n")
       (match (eval-top expr '#hash())
         [(list result likelihood db)
@@ -43,11 +43,12 @@
     ;; For simplicity, just raise an error if no random choices.
     (when (zero? (hash-count prev-db))
       (error 'mh "program is deterministic"))
-    ;; (eprintf "Initialized\n")
+    (vprintf 'init "Initialized\n")
 
     (define/public (sample)
       (define key-to-change (list-ref (hash-keys prev-db) (random (hash-count prev-db))))
       (set! sample-count (add1 sample-count))
+      (vprintf 'mh "-- Starting sample #~s\n" sample-count)
       (sample-S key-to-change))
 
     (define/public (sample-S key-to-change)
@@ -69,6 +70,7 @@
              ;;   (entry-value new-entry) = (entry-value old-entry)
              (- (dist-pdf (entry-dist new-entry) (entry-value new-entry) #t)
                 (dist-pdf (entry-dist old-entry) (entry-value old-entry) #t)))))
+      (vprintf 'mh-ratio "Accept ratio (log) = ~s\n" accept-threshold)
       (cond [(< (log (random)) accept-threshold)
              (accept-S new-result new-likelihood new-db)
              new-result]
@@ -83,10 +85,8 @@
       (set! prev-db new-db))
 
     (define/public (reject-S)
+      (vprintf 'mh-reject "Rejected\n")
       (void))
-
-    (define/public (vprintf fmt . args)
-      (when verbose? (apply eprintf fmt args)))
 
     ;; propose : Dist Value -> (cons Value Real)
     ;; Returns new value and Q(x'->x)/Q(x->x') ratio (ie, Reverse/Forward)

@@ -20,10 +20,9 @@
 (define (mh-samples expr n
                     #:N-method  [method 'trace]
                     #:hmc-L     [hmc-L default-hmc-L]
-                    #:hmc-delta [hmc-delta default-hmc-delta]
-                    #:verbose?  [verbose? #f])
+                    #:hmc-delta [hmc-delta default-hmc-delta])
   (define s
-    (new sampler% (expr expr) (verbose? verbose?) (N-method method)
+    (new sampler% (expr expr) (N-method method)
          (hmc-L hmc-L) (hmc-delta hmc-delta)))
   (for/list ([i n]) (send s sample)))
 
@@ -43,8 +42,7 @@
                    prev-result
                    prev-likelihood
                    prev-db)
-    (inherit propose
-             vprintf)
+    (inherit propose)
     (super-new)
 
     (field [db-needs-update? #f]   ;; Boolean
@@ -57,6 +55,7 @@
     (define/override (sample)
       (define key-to-change (list-ref (hash-keys prev-db) (random (hash-count prev-db))))
       (set! sample-count (add1 sample-count))
+      (vprintf 'mh "-- Starting sample #~s\n" sample-count)
       (cond [(entry-structural? (hash-ref prev-db key-to-change))
              (sample-S key-to-change)]
             [else
@@ -64,7 +63,7 @@
 
     (define/override (sample-S key-to-change)
       (when db-needs-update?
-        (vprintf "S: updating db\n")
+        (vprintf 'trace "S: updating db\n")
         (db-add-tstore! prev-db prev-tmapping prev-tstore)
         ;; Rerun to get up-to-date likelihood
         (defmatch (list new-result new-likelihood new-db)
@@ -87,9 +86,9 @@
 
     (define/public (sample-N key-to-change)
       (cond [prev-trace
-             (vprintf "N: reusing trace\n")]
+             (vprintf 'trace "N: reusing trace\n")]
             [else
-             (vprintf "N: tracing\n")
+             (vprintf 'trace "N: tracing\n")
              (defmatch (list result-te tmapping tstore trace) (trace-top expr prev-db))
              (set! prev-trace trace)
              (set! prev-result-te result-te)
@@ -119,10 +118,13 @@
         (+ 0 ;; size of db doesn't change
            proposal-factor
            (- current-l prev-l)))
+      (vprintf 'mh-ratio "Accept ratio (log) = ~s\n" accept-threshold)
       (cond [(< (log (random)) accept-threshold)
              (accept-N result current-tstore)
              result]
-            [else prev-result]))
+            [else
+             (vprintf 'mh-reject "Rejected\n")
+             prev-result]))
 
     ;; single-site/method : TraceExpr TraceStore Dist Value -> (list Trace Value Real)
     (define/public (single-site/method value-te current-tstore dist value)
@@ -137,11 +139,11 @@
          (define sliced-trace (get-sliced-trace value-te))
          (defmatch (list gibbs-trace cond-dist)
            (gibbs-reslice sliced-trace value-te current-tstore))
-         (vprintf "N: gibbs eliminated ~s rescores\n"
+         (vprintf 'trace "N: gibbs eliminated ~s rescores\n"
                   (- (length (filter ts:sample? sliced-trace))
                      (length (filter ts:sample? gibbs-trace))))
-         (vprintf "N: gibbs trace = \n")
-         (for ([ts gibbs-trace]) (vprintf "    ~v\n" ts))
+         (vprintf 'gibbs "N: gibbs trace = \n")
+         (for ([ts gibbs-trace]) (vprintf 'gibbs "    ~v\n" ts))
          (define value* (dist-sample cond-dist))
          (define proposal-factor 0)
          (list gibbs-trace value* proposal-factor)]))
@@ -149,10 +151,10 @@
     (define/public (get-sliced-trace value-te)
       (cond [(hash-ref prev-slicemap value-te #f)
              => (lambda (s)
-                  (vprintf "N: reusing sliced trace\n")
+                  (vprintf 'trace "N: reusing sliced trace\n")
                   s)]
             [else
-             (vprintf "N: slicing trace wrt ~e\n" value-te)
+             (vprintf 'trace "N: slicing trace wrt ~e\n" value-te)
              (define s (slice-trace prev-trace value-te))
              (hash-set! prev-slicemap value-te s)
              s]))
@@ -160,9 +162,9 @@
     (define/public (sample-N/hmc)
       ;; We change all non-structural choices simultaneously.
       (cond [prev-trace
-             (vprintf "N: reusing trace\n")]
+             (vprintf 'trace "N: reusing trace\n")]
             [else
-             (vprintf "N: tracing\n")
+             (vprintf 'trace "N: tracing\n")
              (defmatch (list result-te tmapping tstore trace) (trace-top expr prev-db))
              (set! prev-trace trace)
              (set! prev-result-te result-te)
@@ -174,10 +176,12 @@
         (leapfrog prev-trace hmc-L hmc-delta N-vars prev-tstore))
       (define result (eval-trace-expr prev-result-te current-tstore))
       (define accept-threshold logthreshold)
+      (vprintf 'mh-ratio "Accept ratio (log) = ~s\n" accept-threshold)
       (cond [(< (log (random)) accept-threshold)
              (accept-N result current-tstore)
              result]
             [else
+             (vprintf 'mh-reject "Rejected\n")
              prev-result]))
 
     (define/public (accept-N result current-tstore)

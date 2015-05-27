@@ -153,6 +153,15 @@
 (define base-env (map (lambda (name) (cons name (primop name))) (map car primops)))
 
 ;; ============================================================
+;; Debugging output
+
+;; verbosity : (Listof Symbol)
+(define verbosity (make-parameter '()))
+
+(define (vprintf what fmt . args)
+  (when (memq what (verbosity)) (apply eprintf fmt args)))
+
+;; ============================================================
 ;; Example programs
 
 (define p-geometric
