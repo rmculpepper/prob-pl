@@ -104,7 +104,9 @@
   (define Ugradient_0
     (parameterize ((current-tstore xstore_0))
       (AD/Uenergy trace)))
-  (define p-dist (normal-dist 0 1))
+  ;; Want E[Kenergy_0] to be 1, ie independent of number of RVs
+  ;; E[Kenergy_0] = E[sum{i≤k} N(0,σ²)²] = kσ², so set σ = sqrt(1/k)
+  (define p-dist (normal-dist 0 (sqrt (/ (length xvars)))))
   (define pstore_0
     (for/hash ([xvar xvars])
       (values xvar (dist-sample p-dist))))
