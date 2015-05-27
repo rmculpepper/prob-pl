@@ -18,18 +18,25 @@
 ;; MH Sampler -- combining classic eval and tracing
 
 (define (mh-samples expr n
-                    #:N-method [method 'trace]
-                    #:verbose? [verbose? #f])
-  (define s (new sampler% (expr expr) (verbose? verbose?) (N-method method)))
+                    #:N-method  [method 'trace]
+                    #:hmc-L     [hmc-L default-hmc-L]
+                    #:hmc-delta [hmc-delta default-hmc-delta]
+                    #:verbose?  [verbose? #f])
+  (define s
+    (new sampler% (expr expr) (verbose? verbose?) (N-method method)
+         (hmc-L hmc-L) (hmc-delta hmc-delta)))
   (for/list ([i n]) (send s sample)))
+
+(define default-hmc-L 10)
+(define default-hmc-delta 0.1)
 
 ;; ------------------------------------------------------------
 
 (define sampler%
   (class sampler-base%
     (init-field [N-method       'trace]
-                [hmc-L           10]
-                [hmc-delta       0.1])
+                [hmc-L          default-hmc-L]
+                [hmc-delta      default-hmc-delta])
     (inherit-field expr
                    accept-count
                    sample-count
