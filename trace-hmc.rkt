@@ -115,8 +115,8 @@
       (leapfrog-step trace delta xstore_t pstore_t Ugradient_t)))
   (when #f (print-leapfrog-state L xstore_L pstore_L Uenergy_L Ugradient_L))
   (list xstore_L
-        (- (+ Uenergy_L (Kenergy pstore_L))
-           (+ Uenergy_0 (Kenergy pstore_0)))))
+        (- (+ Uenergy_0 (Kenergy pstore_0))
+           (+ Uenergy_L (Kenergy pstore_L)))))
 
 (define (print-leapfrog-state step xstore pstore Uenergy Ugradient)
   (printf "\nstep ~s:\n" step)
