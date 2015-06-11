@@ -69,12 +69,18 @@
 
 ;; ============================================================
 
-;; den-top : Expr -> Denotation
-(define (den-top expr)
-  (den-expr expr base-env))
+;; den-top : Expr Nat -> Denotation
+(define (den-top expr n)
+  (den-expr expr base-env n))
 
-;; den-expr : Expr Env -> Denotation
-(define (den-expr expr env)
+;; den-expr : Expr Env Nat -> Denotation
+(define (den-expr expr env n)
+  (cond [(zero? n)
+         (unitD (Timeout))]
+        [else (den-expr* expr env n)]))
+
+(define (den-expr* expr env n+1)
+  (define n (sub1 n+1))
   (match expr
     [(? symbol? var)
      (cond [(assoc var env)
@@ -85,32 +91,32 @@
     [(expr:lambda formals body)
      (unit (closure formals body env))]
     [(expr:app _ f args)
-     (mdo ([vf (den-expr f env)]
-           [vargs (den-exprs args env)])
-       (apply-function vf vargs))]
+     (mdo ([vf (den-expr f env n)]
+           [vargs (den-exprs args env n)])
+       (apply-function vf vargs n))]
     [(expr:fix expr)
-     (mdo ([v (den-expr expr env)])
+     (mdo ([v (den-expr expr env n)])
        (if (closure? v)
            (unit (fixed v))
            (unitD (Error "cannot fix non-closure"))))]
     [(expr:if e1 e2 e3)
-     (mdo ([v1 (den-expr e1 env)])
+     (mdo ([v1 (den-expr e1 env n)])
        (if v1
-           (den-expr e2 env)
-           (den-expr e3 env)))]
+           (den-expr e2 env n)
+           (den-expr e3 env n)))]
     [(expr:S-sample _ de)
-     (mdo ([d (den-expr de env)])
+     (mdo ([d (den-expr de env n)])
        (if (dist? d)
            (do-sample d)
            (unitD (Error "not a dist"))))]
     [(expr:N-sample _ de)
-     (mdo ([d (den-expr de env)])
+     (mdo ([d (den-expr de env n)])
        (if (dist? d)
            (do-sample d)
            (unitD (Error "not a dist"))))]
     [(expr:observe-sample de ve)
-     (mdo ([d (den-expr de env)]
-           [v (den-expr ve env)])
+     (mdo ([d (den-expr de env n)]
+           [v (den-expr ve env n)])
        (if (dist? d)
            (do-observe-sample d v)
            (unitD (Error "not a dist"))))]
@@ -120,11 +126,11 @@
      (unitD (Error "mem not supported"))]))
 
 ;; den-exprs : (Listof Expr) Env -> (Listof Value)
-(define (den-exprs exprs env)
-  (sequence (for/list ([expr (in-list exprs)]) (den-expr expr env))))
+(define (den-exprs exprs env n)
+  (sequence (for/list ([expr (in-list exprs)]) (den-expr expr env n))))
 
-;; apply-function : Value (Listof Value) -> Value
-(define (apply-function f args)
+;; apply-function : Value (Listof Value) Nat -> Value
+(define (apply-function f args n)
   (match f
     [(primop name)
      (unit (apply (primop-name->procedure name) args))]
@@ -133,10 +139,10 @@
             (unitD (Error "apply-function :arity"))]
            [else
             (define env* (append (map cons formals args) env))
-            (den-expr body env*)])]
+            (den-expr body env* n)])]
     [(fixed inner-fun)
-     (mdo ([f* (apply-function inner-fun (list f))])
-       (apply-function f* args))]
+     (mdo ([f* (apply-function inner-fun (list f) n)])
+       (apply-function f* args n))]
     [(memoized inner-fun table _)
      (unitD (Error "apply-function: mem not supported"))]
     [_ (unitD (Error "apply-function: not a function"))]))
