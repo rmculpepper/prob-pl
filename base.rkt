@@ -135,6 +135,9 @@
                    logistic-dist normal-dist pareto-dist uniform-dist))))
 (define primops (append scheme-primops dist-primops))
 
+(define constructor-primop-names
+  (append '(cons list) (map car dist-primops)))
+
 ;; primop-name->procedure : Symbol -> Procedure
 (define (primop-name->procedure name)
   (cond [(assq name primops) => cdr]
