@@ -82,8 +82,8 @@
      (unless (dist? d) (error 'observe-sample "not a dist: ~e" d))
      (left-foot (current-likelihood))
      (current-likelihood (* (current-likelihood) (dist-pdf d v)))
-     (right-foot (expr:value #f) "observe-sample" (current-likelihood))
-     #f]
+     (right-foot (expr:value v) "observe-sample" (current-likelihood))
+     v]
     [(expr:fail)
      ((current-fail))]
     [(expr:mem _ e)
