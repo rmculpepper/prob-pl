@@ -6,6 +6,7 @@
          racket/gui/base
          macro-debugger/view/cursor
          macro-debugger/syntax-browser/util
+         macro-debugger/syntax-browser/display
          macro-debugger/syntax-browser/text
          unstable/gui/notify
          images/compile-time
@@ -214,7 +215,7 @@
     (init-field parent widget)
     (super-new)
 
-    (define text (new text%))
+    (define text (new browser-text%))
     (define canvas (new editor-canvas% (parent parent) (editor text)))
 
     (define/public (erase-all)
@@ -239,7 +240,7 @@
       (match s
         [(step type ctx old-expr old-extra new-expr new-extra)
          (show-state old-expr 'redex)
-         (show-separator type)
+         (show-separator type old-extra new-extra)
          (show-state new-expr 'contractum)]))
 
     (define/private (show-state expr mode)
@@ -248,14 +249,19 @@
                      mode))
 
     ;; show-separator : Step [...] -> void
-    (define/private (show-separator type #:compact? [compact? #f])
+    (define/private (show-separator type old-extra new-extra #:compact? [compact? #f])
       (add-text (if compact? "" "\n"))
       (add-text
        (make-object image-snip%
                     (collection-file-path "red-arrow.bmp" "icons")))
       (add-text "  [")
       (add-text type)
-      (add-text "]\n\n"))
+      (add-text "]")
+      (cond [(equal? old-extra new-extra)
+             (add-text (format "; weight ~s" new-extra))]
+            [else
+             (add-text (format "; weight ~s -> ~s" old-extra new-extra))])
+      (add-text "\n\n"))
 
     ;; insert-syntax/redex
     (define/private (insert-syntax stx foci mode)
@@ -275,25 +281,24 @@
     ;; from syntax-browser/widget
 
     (define/public (add-text str)
-      (with-unlock text
-        (send text insert str)))
+      (define BASE-FONT-SIZE 16)
+      (add-text/style str (make-object style-delta% 'change-size BASE-FONT-SIZE)))
 
     ;; FIXME
     (define/public (add-syntax stx
                                #:hi-colors [hi-colors null]
                                #:hi-stxss [hi-stxss null])
+      (define CODE-FONT-SIZE 16)
       (define out (open-output-string))
       (pretty-write stx out)
-      (add-text (get-output-string out)))
+      (add-text/style (get-output-string out)
+                      (code-style text CODE-FONT-SIZE)))
 
-    #|
-    (define/private (calculate-columns)
-      (define style (code-style -text (send/i config config<%> get-syntax-font-size)))
-      (define char-width (send style get-text-width (send -ecanvas get-dc)))
-      (let ([admin (send -text get-admin)]
-            [w-box (box 0.0)])
-        (send admin get-view #f #f w-box #f)
-        (sub1 (inexact->exact (floor (/ (unbox w-box) char-width))))))
-    |#
-
+    (define/public (add-text/style str style)
+      (with-unlock text
+        (define start-location (send text last-position))
+        (send text insert str)
+        (define end-location (send text last-position))
+        (when style
+          (send text change-style style start-location end-location #f))))
     ))
