@@ -207,9 +207,6 @@
 
 ;; ============================================================
 
-(define (samples->mean samples)
-  (/ (apply + samples) (length samples)))
-
 (module+ test
   (define (do-tests method [do-discrete? #t])
     (printf "** ~s\n" method)

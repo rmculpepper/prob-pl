@@ -107,9 +107,6 @@
 
 ;; ============================================================
 
-(define (samples->mean samples)
-  (/ (apply + samples) (length samples)))
-
 (module+ test
   (printf "p-cd: want 9.5, got: ~s\n"
           (samples->mean (mh-samples p-cd 1000)))
