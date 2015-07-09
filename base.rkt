@@ -274,3 +274,9 @@
                     ;; y = 2x+1
                     '((0 . 1) (1 . 3) (2 . 5) (3 . 7) (4 . 9)))])
      (list a b e))))
+
+(define p-coin1
+  (parse-expr
+   '(let* ([ph (N-sample (beta-dist 1 1))]
+           [_o (observe-sample (bernoulli-dist ph) 1)])
+     (N-sample (bernoulli-dist ph)))))
