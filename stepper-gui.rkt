@@ -262,9 +262,9 @@
       (cond [(equal? old-extra new-extra)
              (add-text (format "~s" new-extra))]
             [else
-             (add-text/style (format "~s" old-extra) (hi-style 'redex))
+             (add-text (format "~s" old-extra) (list (hi-style 'redex)))
              (add-text " -> ")
-             (add-text/style (format "~s" new-extra) (hi-style 'contractum))])
+             (add-text (format "~s" new-extra) (list (hi-style 'contractum)))])
       (add-text "\n\n"))
 
     ;; insert-syntax/redex
@@ -279,9 +279,8 @@
 
     ;; from syntax-browser/widget
 
-    (define/public (add-text str)
-      (define BASE-FONT-SIZE 16)
-      (add-text/style str (make-object style-delta% 'change-size BASE-FONT-SIZE)))
+    (define/public (add-text str [styles null])
+      (add-text/styles str (cons base-style styles)))
 
     (define/public (OLD-add-syntax stx
                                    #:hi-colors [hi-colors null]
@@ -290,8 +289,8 @@
       (define out (open-output-string))
       (port-count-lines! out)
       (pretty-write stx out)
-      (add-text/style (get-output-string out)
-                      (code-style text CODE-FONT-SIZE)))
+      (add-text/styles (get-output-string out)
+                       (list (code-style text CODE-FONT-SIZE))))
 
     (define/public (add-syntax stx
                                #:hi-colors [hi-colors null]
@@ -308,8 +307,8 @@
                              (hash)
                              60 ;; columns
                              #t))
-      (add-text/style (get-output-string out)
-                      (code-style text CODE-FONT-SIZE))
+      (add-text/styles (get-output-string out)
+                       (list (code-style text CODE-FONT-SIZE)))
       (for ([hi-color hi-colors]
             [hi-stxs hi-stxss])
         (highlight-syntaxes start-position range hi-stxs hi-color))
@@ -328,12 +327,12 @@
             (+ start-position (car r))
             (+ start-position (cdr r))))
 
-    (define/public (add-text/style str style)
+    (define/public (add-text/styles str styles)
       (with-unlock text
         (define start-location (send text last-position))
         (send text insert str)
         (define end-location (send text last-position))
-        (when style
+        (for ([style styles])
           (send text change-style style start-location end-location))))
     ))
 
@@ -350,3 +349,7 @@
     [(redex) "LightGreen"]
     [(contractum) "Magenta"]
     [else #f]))
+
+(define BASE-FONT-SIZE 16)
+
+(define base-style (make-object style-delta% 'change-size BASE-FONT-SIZE))
