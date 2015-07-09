@@ -309,7 +309,7 @@
                              '("black")
                              'never
                              (hash)
-                             60 ;; columns
+                             (pretty-print-columns) ;; columns
                              #t))
       (add-text/styles (get-output-string out)
                        (list (code-style text CODE-FONT-SIZE)))
