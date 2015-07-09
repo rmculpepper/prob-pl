@@ -18,6 +18,10 @@
                      images/icons/style))
 (provide (all-defined-out))
 
+(define (call-with-gui-stepper proc)
+  (parameterize ((current-emit-step (make-gui-emit-step)))
+    (proc)))
+
 (define (make-gui-emit-step)
   (define f (new frame% (width 600) (height 400) (label "Stepper")))
   (define w (new stepper-widget% (parent f)))
