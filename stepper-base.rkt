@@ -12,6 +12,7 @@
 
 (struct expr:eval (expr env) #:transparent)
 (struct expr:value (value) #:transparent)
+(struct expr:focus (expr) #:transparent) ;; only used to mark redex/contractum
 
 ;; current-state : (Parameterof Expr+)
 ;; where Expr+ is like Expr+ but may contain expr:eval.
@@ -48,14 +49,16 @@
   (current-left-foot extra))
 
 (define (right-foot expr step-type [extra #f])
-  (define old-state (current-state))
   (define old-extra (current-left-foot))
-  (define ctx (current-context))
-  (define new-state (state-update old-state (reverse ctx) expr))
+  (define ctx (reverse (current-context)))
+  (define old-state (current-state))
+  (define new-state (state-update old-state ctx expr))
   (current-state new-state)
   (left-foot extra)
   (when step-type
-    (emit-step (step step-type ctx old-state old-extra new-state extra))))
+    (emit-step (step step-type ctx
+                     (mark-r/c old-state ctx) old-extra
+                     (mark-r/c new-state ctx) extra))))
 
 (define (default-emit-step s)
   (match s
@@ -68,7 +71,13 @@
 
 (define (emit-step s) ((current-emit-step) s))
 
-(define (state-update state0 ctx0 expr)
+(define (state-update state ctx expr)
+  (state-update* state ctx (lambda (_) expr)))
+
+(define (mark-r/c state ctx)
+  (state-update* state ctx expr:focus))
+
+(define (state-update* state0 ctx0 f)
   (define (bad) (error 'state-update "impossible: state = ~s, ctx = ~s" state0 ctx0))
   (let outerloop ([state state0] [ctx ctx0])
     (match ctx
@@ -96,58 +105,77 @@
             ;; Other forms don't have contexts.
             (bad)]))]
       ['()
-       expr])))
+       (f state)])))
 
 ;; ------------------------------------------------------------
 
 (define (print-state state ctx likelihood)
-  (pretty-write (expr->sexpr state base-env)))
+  (let ([state (mark-r/c state ctx)])
+    (pretty-write
+     (syntax->datum (expr->stx state base-env)))))
 
-(define (expr->sexpr expr [base-env base-env])
+(define (expr->stx expr [base-env base-env])
   (let loop ([expr expr])
-    (match expr
-      [(? symbol? var) var]
-      [(expr:quote value) (value->sexpr value base-env)]
-      [(expr:lambda args body) `(lambda ,args ,(loop body))]
-      [(expr:fix e) `(fix ,(loop e))]
-      [(expr:app cs op args) `(,(loop op) ,@(map loop args))]
-      [(expr:if e1 e2 e3) `(if ,(loop e1) ,(loop e2) ,(loop e3))]
-      [(expr:S-sample cs e) `(S-sample ,(loop e))]
-      [(expr:N-sample cs e) `(N-sample ,(loop e))]
-      [(expr:observe-sample e1 e2) `(observe-sample ,(loop e1) ,(loop e2))]
-      [(expr:fail) `(fail)]
-      [(expr:mem cs e) `(mem ,(loop e))]
-      [(expr:eval expr env)
-       (wrap-env env base-env (expr->sexpr expr env))]
-      [(expr:value value) (value->sexpr value base-env)]
-      )))
+    (mkstx
+     (match expr
+       [(? symbol? var) var]
+       [(expr:quote value) (value->stx value base-env)]
+       [(expr:lambda args body) `(lambda ,args ,(loop body))]
+       [(expr:fix e) `(fix ,(loop e))]
+       [(expr:app cs op args) `(,(loop op) ,@(map loop args))]
+       [(expr:if e1 e2 e3) `(if ,(loop e1) ,(loop e2) ,(loop e3))]
+       [(expr:S-sample cs e) `(S-sample ,(loop e))]
+       [(expr:N-sample cs e) `(N-sample ,(loop e))]
+       [(expr:observe-sample e1 e2) `(observe-sample ,(loop e1) ,(loop e2))]
+       [(expr:fail) `(fail)]
+       [(expr:mem cs e) `(mem ,(loop e))]
+       [(expr:eval expr env)
+        (wrap-env env base-env (expr->stx expr env))]
+       [(expr:value value) (value->stx value base-env)]
+       [(expr:focus e)
+        (let ([stx (loop e)])
+          (syntax-property stx 'focus #t))]
+       ))))
 
-(define (value->sexpr v base-env)
-  (match v
-    [(closure args body env)
-     (wrap-env env base-env `(lambda ,args ,(expr->sexpr body env)))]
-    [(fixed f)
-     `(fix ,(value->sexpr f base-env))]
-    [(primop name)
-     name]
-    [(? number?) v]
-    [_ (print-convert v)]))
+(define (value->stx v base-env)
+  (mkstx
+   (match v
+     [(closure args body env)
+      (wrap-env env base-env `(lambda ,args ,(expr->stx body env)))]
+     [(fixed f)
+      `(fix ,(value->stx f base-env))]
+     [(primop name)
+      name]
+     [(? number?) v]
+     [_ (print-convert v)])))
 
 (define (wrap-env env base-env body)
   (let ([bindings (env->bindings env base-env)])
     (cond [(null? bindings)
            body]
           [else
-           `(let* ,bindings ,body)])))
+           (mkstx `(let* ,bindings ,body))])))
 
 (define (env->bindings env base-env)
   (let loop ([env env] [acc null])
     (cond [(null? env) acc]
           [(extension? base-env env) acc]
           [else
-           (let ([frame (list (caar env) (value->sexpr (cdar env) (cdr env)))])
+           (let ([frame (list (caar env) (value->stx (cdar env) (cdr env)))])
              (loop (cdr env) (cons frame acc)))])))
 
 (define (extension? xs ys)
   (or (eq? xs ys)
       (and (pair? xs) (extension? (cdr xs) ys))))
+
+(define (mkstx x) (datum->syntax #f x))
+
+(define (foci stx)
+  (let loop ([stx stx] [onto null])
+    (cond [(pair? stx)
+           (loop (car stx) (loop (cdr stx) onto))]
+          [(syntax? stx)
+           (if (syntax-property stx 'focus)
+               (cons stx onto)
+               (loop (syntax-e stx) onto))]
+          [else onto])))

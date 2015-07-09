@@ -6,7 +6,9 @@
          racket/gui/base
          macro-debugger/view/cursor
          macro-debugger/syntax-browser/util
+         macro-debugger/syntax-browser/partition
          macro-debugger/syntax-browser/display
+         macro-debugger/syntax-browser/pretty-printer
          macro-debugger/syntax-browser/text
          unstable/gui/notify
          images/compile-time
@@ -216,6 +218,7 @@
     (super-new)
 
     (define text (new browser-text%))
+    (send text set-styles-sticky #f)
     (define canvas (new editor-canvas% (parent parent) (editor text)))
 
     (define/public (erase-all)
@@ -244,9 +247,8 @@
          (show-state new-expr 'contractum)]))
 
     (define/private (show-state expr mode)
-      (insert-syntax (expr->sexpr expr)
-                     null ;; foci
-                     mode))
+      (define stx (expr->stx expr))
+      (insert-syntax stx (foci stx) mode))
 
     ;; show-separator : Step [...] -> void
     (define/private (show-separator type old-extra new-extra #:compact? [compact? #f])
@@ -256,21 +258,18 @@
                     (collection-file-path "red-arrow.bmp" "icons")))
       (add-text "  [")
       (add-text type)
-      (add-text "]")
+      (add-text "]; weight ")
       (cond [(equal? old-extra new-extra)
-             (add-text (format "; weight ~s" new-extra))]
+             (add-text (format "~s" new-extra))]
             [else
-             (add-text (format "; weight ~s -> ~s" old-extra new-extra))])
+             (add-text/style (format "~s" old-extra) (hi-style 'redex))
+             (add-text " -> ")
+             (add-text/style (format "~s" new-extra) (hi-style 'contractum))])
       (add-text "\n\n"))
 
     ;; insert-syntax/redex
     (define/private (insert-syntax stx foci mode)
-      (define foci-color
-        (case mode
-          [(redex) "MistyRose"]
-          [(contractum) "LightCyan"]
-          [else #f]))
-      (insert-syntax/color stx foci foci-color))
+      (insert-syntax/color stx foci (hi-color mode)))
 
     ;; insert-syntax/color
     (define/private (insert-syntax/color stx foci hi-color)
@@ -284,15 +283,50 @@
       (define BASE-FONT-SIZE 16)
       (add-text/style str (make-object style-delta% 'change-size BASE-FONT-SIZE)))
 
-    ;; FIXME
+    (define/public (OLD-add-syntax stx
+                                   #:hi-colors [hi-colors null]
+                                   #:hi-stxss [hi-stxss null])
+      (define CODE-FONT-SIZE 16)
+      (define out (open-output-string))
+      (port-count-lines! out)
+      (pretty-write stx out)
+      (add-text/style (get-output-string out)
+                      (code-style text CODE-FONT-SIZE)))
+
     (define/public (add-syntax stx
                                #:hi-colors [hi-colors null]
                                #:hi-stxss [hi-stxss null])
       (define CODE-FONT-SIZE 16)
+      (define start-position (send text last-position))
       (define out (open-output-string))
-      (pretty-write stx out)
+      (port-count-lines! out)
+      (define range
+        (pretty-print-syntax stx out
+                             (new-bound-partition)
+                             '("black")
+                             'never
+                             (hash)
+                             60 ;; columns
+                             #t))
       (add-text/style (get-output-string out)
-                      (code-style text CODE-FONT-SIZE)))
+                      (code-style text CODE-FONT-SIZE))
+      (for ([hi-color hi-colors]
+            [hi-stxs hi-stxss])
+        (highlight-syntaxes start-position range hi-stxs hi-color))
+      (void))
+
+    ;; highlight-syntaxes : Nat Range (Listof Syntax) String -> Void
+    (define/private (highlight-syntaxes start-position range stxs hi-color)
+      (define delta (hi-style hi-color))
+      (for ([stx (in-list stxs)])
+        (for ([r (in-list (send range get-ranges stx))])
+          (restyle-range start-position r delta))))
+
+    ;; restyle-range : (cons Nat Nat) style-delta% Boolean -> Void
+    (define/private (restyle-range start-position r style)
+      (send text change-style style
+            (+ start-position (car r))
+            (+ start-position (cdr r))))
 
     (define/public (add-text/style str style)
       (with-unlock text
@@ -300,5 +334,19 @@
         (send text insert str)
         (define end-location (send text last-position))
         (when style
-          (send text change-style style start-location end-location #f))))
+          (send text change-style style start-location end-location))))
     ))
+
+(define (hi-style color)
+  (cond [(symbol? color)
+         (hi-style (hi-color color))]
+        [else
+         (let ([sd (new style-delta%)])
+           (when color (send sd set-delta-background color))
+           sd)]))
+
+(define (hi-color mode)
+  (case mode
+    [(redex) "LightGreen"]
+    [(contractum) "Magenta"]
+    [else #f]))
