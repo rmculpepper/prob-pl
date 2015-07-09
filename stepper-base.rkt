@@ -78,7 +78,9 @@
   (state-update* state ctx expr:focus))
 
 (define (state-update* state0 ctx0 f)
-  (define (bad) (error 'state-update "impossible: state = ~s, ctx = ~s" state0 ctx0))
+  (define (bad sub subctx)
+    (error 'state-update "impossible\nstate = ~s\nctx = ~s\nsub = ~s\nsubctx = ~s\nf = ~s\n"
+           state0 ctx0 sub subctx (f sub)))
   (let outerloop ([state state0] [ctx ctx0])
     (match ctx
       [(cons frame ctx-rest)
@@ -101,41 +103,56 @@
             (expr:observe-sample (C e1 1) (C e2 2))]
            [(expr:mem cs e)
             (expr:mem cs (C e 1))]
+           [(expr:let* vars rhss body)
+            (expr:let* vars (for/list ([rhs rhss] [i (in-naturals 0)]) (C rhs i)) body)]
            [_
             ;; Other forms don't have contexts.
-            (bad)]))]
+            (bad state ctx)]))]
       ['()
        (f state)])))
 
 ;; ------------------------------------------------------------
 
 (define (print-state state ctx likelihood)
-  (let ([state (mark-r/c state ctx)])
-    (pretty-write
-     (syntax->datum (expr->stx state base-env)))))
+  (pretty-write (syntax->datum (expr->stx state base-env))))
 
 (define (expr->stx expr [base-env base-env])
-  (let loop ([expr expr])
-    (mkstx
-     (match expr
-       [(? symbol? var) var]
-       [(expr:quote value) (value->stx value base-env)]
-       [(expr:lambda args body) `(lambda ,args ,(loop body))]
-       [(expr:fix e) `(fix ,(loop e))]
-       [(expr:app cs op args) `(,(loop op) ,@(map loop args))]
-       [(expr:if e1 e2 e3) `(if ,(loop e1) ,(loop e2) ,(loop e3))]
-       [(expr:S-sample cs e) `(S-sample ,(loop e))]
-       [(expr:N-sample cs e) `(N-sample ,(loop e))]
-       [(expr:observe-sample e1 e2) `(observe-sample ,(loop e1) ,(loop e2))]
-       [(expr:fail) `(fail)]
-       [(expr:mem cs e) `(mem ,(loop e))]
-       [(expr:eval expr env)
-        (wrap-env env base-env (expr->stx expr env))]
-       [(expr:value value) (value->stx value base-env)]
-       [(expr:focus e)
-        (let ([stx (loop e)])
-          (syntax-property stx 'focus #t))]
-       ))))
+  (mkstx (expr->stx* expr base-env)))
+
+(define (expr->stx* expr base-env)
+  (define (loop expr [env base-env])
+    (expr->stx expr env))
+  (match expr
+    [(? symbol? var) var]
+    [(expr:quote value) (value->stx value base-env)]
+    [(expr:lambda args body) `(lambda ,args ,(loop body))]
+    [(expr:fix e) `(fix ,(loop e))]
+    [(expr:app cs op args) `(,(loop op) ,@(map loop args))]
+    [(expr:if e1 e2 e3) `(if ,(loop e1) ,(loop e2) ,(loop e3))]
+    [(expr:S-sample cs e) `(S-sample ,(loop e))]
+    [(expr:N-sample cs e) `(N-sample ,(loop e))]
+    [(expr:observe-sample e1 e2) `(observe-sample ,(loop e1) ,(loop e2))]
+    [(expr:fail) `(fail)]
+    [(expr:mem cs e) `(mem ,(loop e))]
+    [(expr:let* vars rhss body)
+     (let bindingsloop ([vars vars] [rhss rhss] [env* base-env] [rbindings null])
+       (match* [vars rhss]
+         [['() '()]
+          `(let* ,(reverse rbindings) ,(expr->stx body env*))]
+         [[(cons var vars) (cons rhs rhss)]
+          (bindingsloop vars rhss
+                        (match rhs
+                          [(expr:value v)
+                           (cons (cons var v) env*)]
+                          [else env*])
+                        (cons (list var (expr->stx rhs env*)) rbindings))]))]
+    [(expr:eval expr env)
+     (wrap-env env base-env (expr->stx* expr env))]
+    [(expr:value value) (value->stx value base-env)]
+    [(expr:focus e)
+     (let ([stx (loop e)])
+       (syntax-property stx 'focus #t))]
+    ))
 
 (define (value->stx v base-env)
   (mkstx
@@ -154,7 +171,11 @@
     (cond [(null? bindings)
            body]
           [else
-           (mkstx `(let* ,bindings ,body))])))
+           (match body
+             [(list 'let* inner-bindings inner-body)
+              `(let* ,(append bindings inner-bindings) ,inner-body)]
+             [else
+              `(let* ,bindings ,body)])])))
 
 (define (env->bindings env base-env)
   (let loop ([env env] [acc null])

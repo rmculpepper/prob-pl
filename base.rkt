@@ -38,6 +38,7 @@
 ;; - (expr:observe-sample Expr Expr)
 ;; - (expr:fail)
 ;; - (expr:mem CallSite Expr)
+;; - (expr:let* (Listof Symbol) (Listof Expr) Expr)
 (struct expr:quote (datum) #:transparent)
 (struct expr:lambda (formals body) #:transparent)
 (struct expr:fix (body) #:transparent)
@@ -48,6 +49,7 @@
 (struct expr:observe-sample (dist value) #:transparent)
 (struct expr:fail () #:transparent)
 (struct expr:mem (cs arg) #:transparent)
+(struct expr:let* (vars rhss body) #:transparent)
 
 ;; A CallSite could be any value, but we use fresh symbols
 (define (gencs) (gensym 'cs))
@@ -80,12 +82,17 @@
      (expr:fail)]
     [(list 'mem e)
      (expr:mem (gencs) (parse-expr e))]
+    [(list 'let* (list (list (? symbol? vars) rhss) ...) body)
+     (expr:let* vars (map parse-expr rhss) (parse-expr body))]
+    #|
+    ;; Old approach: desugar to app + lambda
     [(list 'let* '() body)
      (parse-expr body)]
     [(list 'let* (cons [list (? symbol? var) rhs] bindings) body)
      (expr:app (gencs)
                (expr:lambda (list var) (parse-expr `(let* ,bindings ,body)))
                (list (parse-expr rhs)))]
+    |#
     [(list 'letrec (list [list (? symbol? var) rhs]) body)
      (expr:app (gencs)
                (expr:lambda (list var) (parse-expr body))

@@ -38,6 +38,7 @@
 
 ;; eval-expr : Expr Env -> Value
 (define (eval-expr expr env)
+  (walk (expr:eval expr env) #f)
   (match expr
     [(? symbol? var)
      (cond [(assoc var env) =>
@@ -51,6 +52,21 @@
            [else (error 'eval-expr "unbound variable: ~s" var)])]
     [(expr:quote datum)
      datum]
+    [(expr:let* (cons var vars) (cons rhs rhss) body)
+     (eval-expr (expr:let* vars rhss body)
+                (cons (cons var (with-context 0 (eval-expr rhs env))) env))]
+    [(expr:let* '() '() body)
+     (eval-expr body env)]
+    #|
+    [(expr:let* vars rhss body)
+     (define env*
+       (for/fold ([env* env])
+                 ([var vars]
+                  [rhs rhss]
+                  [i (in-naturals)])
+         (cons (cons var (with-context i (eval-expr rhs env*))) env*)))
+     (eval-expr body env*)]
+    |#
     [(expr:lambda formals body)
      (closure formals body env)]
     [(expr:app _ f args)
