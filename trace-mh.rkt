@@ -164,6 +164,14 @@
      (cdr (assoc var env))]
     [(expr:quote datum)
      (t:quote datum)]
+    [(expr:let* vars rhss body)
+     (define env*
+       (for/fold ([env* env])
+                 ([var vars]
+                  [rhs rhss]
+                  [i (in-naturals)])
+         (cons (cons var (trace-expr rhs env* addr)) env*)))
+     (trace-expr body env* addr)]
     [(expr:lambda formals body)
      (t:quote (closure formals body env))]
     [(expr:app cs f args)

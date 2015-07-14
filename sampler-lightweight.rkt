@@ -109,7 +109,7 @@
 
 (module+ test
   (printf "p-cd: want 9.5, got: ~s\n"
-          (samples->mean (mh-samples p-cd 1000)))
+          (samples->mean (list->vector (map (lambda (x) (cons x 1)) (mh-samples p-cd 1000)))))
   (printf "p-geometric: got ~s\n"
           (mh-samples p-geometric 10))
   (printf "p-mem: got ~s\n"

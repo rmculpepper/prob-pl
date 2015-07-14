@@ -56,6 +56,14 @@
            [else (error 'eval-expr "unbound variable: ~s" var)])]
     [(expr:quote datum)
      datum]
+    [(expr:let* vars rhss body)
+     (define env*
+       (for/fold ([env* env])
+                 ([var vars]
+                  [rhs rhss]
+                  [i (in-naturals)])
+         (cons (cons var (eval-expr rhs env* addr)) env*)))
+     (eval-expr body env* addr)]
     [(expr:lambda formals body)
      (closure formals body env)]
     [(expr:app cs f args)

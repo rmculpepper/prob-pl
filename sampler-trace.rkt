@@ -211,7 +211,9 @@
   (define (do-tests method [do-discrete? #t])
     (printf "** ~s\n" method)
     (printf "p-cd: want 9.5, got: ~s\n"
-            (samples->mean (mh-samples p-cd 1000 #:N-method method)))
+            (samples->mean
+             (list->vector (map (lambda (x) (cons x 1))
+                                (mh-samples p-cd 1000 #:N-method method)))))
     (when do-discrete?
       (printf "p-geometric: got ~s\n"
               (mh-samples p-geometric 10 #:N-method method))
