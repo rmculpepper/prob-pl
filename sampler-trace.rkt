@@ -2,6 +2,7 @@
 (require (rename-in racket/match [match-define defmatch])
          racket/class
          gamble
+         data/order
          "base.rkt"
          "lightweight-mh.rkt"
          "trace-mh.rkt"
@@ -29,6 +30,9 @@
 (define default-hmc-L 10)
 (define default-hmc-delta 0.1)
 
+(define (make-sampler expr #:N-method [N-method 'trace])
+  (new sampler% (expr expr) (N-method N-method)))
+
 ;; ------------------------------------------------------------
 
 (define sampler%
@@ -51,6 +55,21 @@
            [prev-tmapping #f]      ;; TraceMapping
            [prev-tstore #f]        ;; TraceStore
            [prev-slicemap #f])     ;; Hash[ TraceVar => Trace ]
+
+    (define/public (get-trace)
+      prev-trace)
+
+    (define/public (get-structural-choices)
+      (get-choices #t))
+
+    (define/public (get-choices [structural-only? #f])
+      (sort (for/list ([(addr e) (in-hash (or prev-db '#hash()))]
+                       #:when (if structural-only?
+                                  (entry-structural? e)
+                                  #t))
+              (list addr e))
+            (order-<? datum-order)
+            #:key car))
 
     (define/override (sample)
       (define key-to-change (list-ref (hash-keys prev-db) (random (hash-count prev-db))))
@@ -158,6 +177,12 @@
              (define s (slice-trace prev-trace value-te))
              (hash-set! prev-slicemap value-te s)
              s]))
+
+    (define/public (get-gibbs-trace value-te)
+      (define sliced-trace (get-sliced-trace value-te))
+      (defmatch (list gibbs-trace cond-dist)
+        (gibbs-reslice sliced-trace value-te current-tstore))
+      gibbs-trace)
 
     (define/public (sample-N/hmc)
       ;; We change all non-structural choices simultaneously.
