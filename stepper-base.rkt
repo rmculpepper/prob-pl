@@ -155,8 +155,6 @@
     [(expr:focus e)
      (let ([stx (loop e)])
        (syntax-property stx 'focus #t))]
-    [(expr:forget vars e)
-     `(let* (,(for/list ([var vars]) `[,var '__forget__])) ,(loop e))]
     ))
 
 (define (value->stx v base-env)

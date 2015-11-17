@@ -111,9 +111,7 @@
              [(expr:mem cs e)
               (expr:mem cs (loop e))]
              [(expr:let* vars rhss body)
-              (expr:let* vars (map loop rhss) (loop body))]
-             [(expr:forget vars body)
-              (expr:forget vars (loop body))])]))
+              (expr:let* vars (map loop rhss) (loop body))])]))
   loop)
 
 (define collapse-lets
@@ -133,23 +131,24 @@
     [_ #f])))
 
 ;; Safe-for-space
-;; e ::= .... | (expr:forget (Listof Symbol) Expr)
 
-;; Might be better to build forgetting into evaluator (with memoized
-;; compute-fv, maybe) rather than source transformation.
+;; Build env narrowing into evaluator, aided by memoized free-vars
+;; function, rather than a src-to-src transformation.
 
-;; sfs : Expr -> Expr
-(define (sfs e)
-  (define fvt (make-hash))
-  (void (compute-fv e fvt))
-  (add-forgets e fvt))
+;; free-variables : Expr -> (Setof Symbol)
+;; Memoized using free-variable-table.
+(define (free-variables e)
+  (hash-ref! free-variable-table e (lambda () (compute-fv e))))
 
-;; compute-fv : Expr Hash[Expr => (Setof Symbol)] -> (Setof Symbol)
+;; free-variable-table : Hash[Expr => (Setof Symbol)]
+(define free-variable-table (make-weak-hasheq))
+
+;; compute-fv : Expr -> (Setof Symbol)
 (define (compute-fv e)
   ;; loop : Expr -> (Setof Symbol)
   (define (loop e)
     (let ([fv (loop* e)])
-      (hash-set! fvt e fv)
+      (hash-set! free-variable-table e fv)
       fv))
   ;; loop* : Expr -> (Setof Symbol)
   (define (loop* e)
@@ -178,54 +177,3 @@
                  ([var (reverse vars)] [rhs (reverse rhss)])
          (set-union (set-remove fv var) (loop rhs)))]))
   (loop e))
-
-;; add-forgets : Expr Hash[Expr => (Setof Symbol)] -> Expr
-;; Add expr:forget wrappers around
-;; - lambda exprs, so closures are minimal
-;; - body of let*, so continuations are minimal
-;; (Note that we never forget parts of base-env; maybe we should do
-;; restrict instead?)
-(define (add-forgets e fvt)
-  (define (loop/env e env)
-    (define (loop e) (loop/env e env))
-    (match e
-      [(? symbol? x) e]
-      [(expr:quote _) e]
-      [(expr:lambda vars body)
-       (define diff (set-subtract env (hash-ref fvt e)))
-       (let ([body-env (set-union (set-subtract env diff) (list->set vars))])
-         (forget diff (loop/env body body-env)))]
-      [(expr:fix e)
-       (expr:fix (loop e))]
-      [(expr:app cs e1 es2)
-       (expr:app cs (loop e1) (map loop es2))]
-      [(expr:if e1 e2 e3)
-       (expr:if (loop e1) (loop e2) (loop e3))]
-      [(expr:S-sample cs e)
-       (expr:S-sample cs (loop e))]
-      [(expr:N-sample cs e)
-       (expr:N-sample cs (loop e))]
-      [(expr:observe-sample e1 e2)
-       (expr:observe-sample (loop e1) (loop e2))]
-      [(expr:fail) e]
-      [(expr:mem cs e)
-       (expr:mem cs (loop e))]
-      [(expr:let* vars rhss body)
-       (define-values (rhss* env*)
-         (let rhsloop ([vars vars] [rhss rhss] [env env] [rrhss* null])
-           (cond [(null? vars)
-                  (values (reverse rrhss*) env)]
-                 [else
-                  (defmatch (cons var1 vars2) vars)
-                  (defmatch (cons rhs1 rhss2) rhss)
-                  (define rhs1* (loop/env rhs1 env))
-                  (define env* (set-add env var1))
-                  (rhsloop vars2 rhss2 env* (cons rhs1* rrhss*))])))
-       (define diff (set-subtract env* (hash-ref fvt body)))
-       (expr:let* vars rhss* (forget diff (loop/env body (set-subtract env* diff))))]))
-  (loop/env e (set)))
-
-(define (forget diff expr)
-  (if (set-empty? diff)
-      expr
-      (expr:forget (set->list diff) expr)))
