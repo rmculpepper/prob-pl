@@ -116,6 +116,9 @@
 (define (print-state state ctx likelihood)
   (pretty-write (syntax->datum (expr->stx state base-env))))
 
+(define (expr->sexpr expr)
+  (syntax->datum (expr->stx expr)))
+
 (define (expr->stx expr [base-env base-env])
   (mkstx (expr->stx* expr base-env)))
 
@@ -152,6 +155,8 @@
     [(expr:focus e)
      (let ([stx (loop e)])
        (syntax-property stx 'focus #t))]
+    [(expr:forget vars e)
+     `(let* (,(for/list ([var vars]) `[,var '__forget__])) ,(loop e))]
     ))
 
 (define (value->stx v base-env)

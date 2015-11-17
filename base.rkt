@@ -39,6 +39,7 @@
 ;; - (expr:fail)
 ;; - (expr:mem CallSite Expr)
 ;; - (expr:let* (Listof Symbol) (Listof Expr) Expr)
+;; * (expr:forget (Listof Symbol) Expr)
 (struct expr:quote (datum) #:transparent)
 (struct expr:lambda (formals body) #:transparent)
 (struct expr:fix (body) #:transparent)
@@ -50,9 +51,13 @@
 (struct expr:fail () #:transparent)
 (struct expr:mem (cs arg) #:transparent)
 (struct expr:let* (vars rhss body) #:transparent)
+(struct expr:forget (vars body) #:transparent)
 
-;; A CallSite could be any value, but we use fresh symbols
-(define (gencs) (gensym 'cs))
+;; A CallSite could be any value, but we use symbols
+(define cs-counter 0)
+(define (gencs)
+  (set! cs-counter (add1 cs-counter))
+  (string->symbol (format "cs~s" cs-counter)))
 
 ;; variable-symbol? : Sexpr -> Boolean
 (define (variable-symbol? v)
