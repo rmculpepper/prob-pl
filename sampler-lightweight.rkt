@@ -3,6 +3,7 @@
          racket/class
          gamble
          "base.rkt"
+         "lightweight-db.rkt"
          "lightweight-mh.rkt")
 (provide (all-defined-out))
 
@@ -53,25 +54,14 @@
 
     (define/public (sample-S key-to-change)
       (defmatch (entry _ dist value) (hash-ref prev-db key-to-change))
-      (defmatch (cons value* proposal-factor) (propose dist value))
-      (define modified-prev-db (hash-copy prev-db))
-      (hash-set! modified-prev-db key-to-change (entry #t dist value*))
+      (defmatch (cons value* l-R/F) (propose dist value))
+      (define modified-prev-db (hash-set prev-db key-to-change (entry #t dist value*)))
       (defmatch (list new-result new-likelihood new-db)
         (eval-top expr modified-prev-db))
-      ;; accept-threshold = (Qbackward / Qforward) * (Pnew / Pprev)
-      (define accept-threshold
-        (+ proposal-factor
-           (- (log (hash-count prev-db)) (log (hash-count new-db)))
-           (- new-likelihood prev-likelihood)
-           (for/sum ([(key old-entry) (in-hash prev-db)]
-                     #:when (hash-has-key? new-db key))
-             (define new-entry (hash-ref new-db key))
-             ;; ASSERT: except for key-to-change,
-             ;;   (entry-value new-entry) = (entry-value old-entry)
-             (- (dist-pdf (entry-dist new-entry) (entry-value new-entry) #t)
-                (dist-pdf (entry-dist old-entry) (entry-value old-entry) #t)))))
-      (vprintf 'mh-ratio "Accept ratio (log) = ~s\n" accept-threshold)
-      (cond [(< (log (random)) accept-threshold)
+      (define threshold
+        (accept-threshold l-R/F prev-db prev-likelihood new-db new-likelihood))
+      (vprintf 'mh-ratio "Accept ratio (log) = ~s\n" threshold)
+      (cond [(< (log (random)) threshold)
              (accept-S new-result new-likelihood new-db)
              new-result]
             [else
@@ -97,7 +87,7 @@
         [else (error 'propose "unknown proposal method: ~e" proposal-method)]))
 
     (define/public (propose/drift dist value)
-      (defmatch (cons value* logfactor) (dist-drift dist value 0.5))
+      (defmatch (cons value* logfactor) (dist-drift1 dist value 0.5))
       (cons value* logfactor))
 
     (define/public (propose/resample dist value)

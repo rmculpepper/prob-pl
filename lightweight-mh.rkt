@@ -1,19 +1,9 @@
 #lang racket/base
 (require (rename-in racket/match [match-define defmatch])
          gamble
-         "base.rkt")
+         "base.rkt"
+         "lightweight-db.rkt")
 (provide (all-defined-out))
-
-;; ============================================================
-;; Lightweight-MH support
-
-;; An Addr is (listof AddrFrame)
-;; where AddrFrame = (U 'top 'fix CallSite (cons 'mem (Listof Value)))
-
-;; A DB is Hash[ Addr => Entry ]
-
-;; An Entry is (entry Boolean Dist Value)
-(struct entry (structural? dist value) #:transparent)
 
 ;; ============================================================
 ;; Evaluator implicit state (parameters)
@@ -44,7 +34,7 @@
     (parameterize ((current-likelihood 0)
                    (current-fail (lambda () (escape (list 'failed 0 #f))))
                    (last-db db)
-                   (current-db (make-hash)))
+                   (current-db #hash()))
       (define result (eval-expr expr base-env '(top)))
       (list result (current-likelihood) (current-db)))))
 
@@ -128,7 +118,7 @@
               (match last-entry
                 [(entry _ last-dist value)
                  (cond [(> (dist-pdf d value #t) -inf.0)
-                        (hash-set! (current-db) addr (entry structural? d value))
+                        (current-db (hash-set (current-db) addr (entry structural? d value)))
                         value]
                        [else
                         ;; FIXME: or could resample here, but that complicates ratio
@@ -136,5 +126,5 @@
                         ((current-fail))])]))]
         [else
          (define value (dist-sample d))
-         (hash-set! (current-db) addr (entry structural? d value))
+         (current-db (hash-set (current-db) addr (entry structural? d value)))
          value]))
