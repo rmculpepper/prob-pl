@@ -1,7 +1,7 @@
 #lang racket/base
 (require racket/match
          gamble
-         "base.rkt"
+         "../base.rkt"
          "stepper-base.rkt")
 (provide (all-defined-out))
 

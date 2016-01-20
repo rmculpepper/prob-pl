@@ -1,7 +1,7 @@
 #lang racket/base
 (require racket/match
          racket/pretty
-         "base.rkt"
+         "../base.rkt"
          mzlib/pconvert)
 (provide (all-defined-out))
 
