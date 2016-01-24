@@ -50,6 +50,8 @@
       `(fix ,(value->stx f base-env))]
      [(primop name)
       name]
+     [(list elems ...)
+      (cons 'list (for/list ([elem elems]) (value->stx elem base-env)))]
      [(? number?) v]
      [_ (print-convert v)])))
 
@@ -57,7 +59,7 @@
   (cond [(eq? env base-env) null]
         [(null? env) null]
         [else
-         (cons (cons (caar env) (value->sexpr (cdar env)))
+         (cons (list (caar env) (value->sexpr (cdar env)))
                (env->sexpr (cdr env) base-env))]))
 
 (define (mkstx x) (datum->syntax #f x))

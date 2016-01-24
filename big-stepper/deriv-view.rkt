@@ -158,9 +158,9 @@
 
     (define/public (show d)
       (send t erase)
-      (when d (show-deriv d)))
+      (when d (show-node d)))
 
-    (define/public (show-deriv d)
+    (define/public (show-node d)
       (match d
         [(node:eval expr env inner result weight)
          (define table (make-hash))
@@ -171,6 +171,11 @@
          (insert "\n")
          (show-judgment env expr result weight table)
          (show-table table)]
+        [(node:apply fun args inner result)
+         (show-apply inner)
+         (insert (new hrule-snip%) #:style hrule-sd)
+         (insert "\n")
+         (show-apply-judgment fun args result)]
         [#f
          (insertf "bad deriv:\n~e" d)
          #f]))
@@ -188,17 +193,33 @@
       (insertf "~s" weight #:style code-sd)
       (insert "\n"))
 
-    (define/public (show-judgment/OLD env expr result weight table)
-      (insert/abbrev (env->sexpr env) table)
-      (insert ", " #:style meta-sd)
-      (insert/abbrev (expr->sexpr expr) table)
-      (insert " ⇓ " #:style meta-sd)
+    (define/public (show-apply-judgment fun args result)
+      (insert "apply function\n" #:style meta-sd)
+      (insert (render-value fun) #:style code-sd)
+      (insert "\nto arguments\n" #:style meta-sd)
+      (for ([arg args])
+        (insert (render-value arg) #:style code-sd)
+        (insert "\n"))
+      (insert "\n ⇓\n" #:style meta-sd)
       (cond [(exn? result)
              (insert (exn-message result) #:style error-sd)]
-            [else (insert/abbrev (value->sexpr result) table)])
-      (insert ", " #:style meta-sd)
-      (insertf "~s" weight #:style code-sd)
+            [else (insert (render-value result) #:style code-sd)])
       (insert "\n"))
+
+    (define/public (summary-apply a)
+      (define table '#hash())
+      (match a
+        [(node:apply fun args inner result)
+         (insert "apply " #:style meta-sd)
+         (insert/abbrev (value->sexpr fun) table #:limit 20)
+         (insert " to " #:style meta-sd)
+         (insert/abbrev (value->sexpr args) table #:limit 20)
+         (insert "  ⇓  " #:style meta-sd)
+         (cond [(exn? result)
+                (insert (exn-message result) #:style error-sd)]
+               [else (insert/abbrev (value->sexpr result) table #:limit 30)])
+         (insert "\n")]
+        [_ (void)]))
 
     (define/public (summary-judgment d table)
       (match d
@@ -261,7 +282,30 @@
        "}"))
 
     (define/public (render-value v)
-      (format "~s" (value->sexpr v)))
+      (pretty-format (value->sexpr v) 60 #:mode 'write))
+
+    (define (show-apply inner)
+      (define (summary d) (summary-judgment d '#hash()))
+      (match inner
+        [(apply:primop ?1)
+         (insert/rule "primop")
+         (summary-exn ?1)]
+        [(apply:closure ?1 body)
+         (insert/rule "closure")
+         (summary-exn ?1)
+         (summary body)]
+        [(apply:fixed self apply)
+         (insert/rule "fixed")
+         (summary-apply self)
+         (summary-apply apply)]
+        [(apply:mem-hit)
+         (insert/rule "memoized (hit)")]
+        [(apply:mem-miss apply)
+         (insert/rule "memoized (miss)")
+         (summary-apply apply)]
+        [(apply:error exn)
+         (insert/rule "error")
+         (summary-exn exn)]))
 
     (define/public (show-inner expr env inner result table)
       (define (summary d) (summary-judgment d table))
@@ -340,34 +384,6 @@
       (insert/style s styles))
     (define/private (insertf #:style [styles null] fmt . args)
       (insert/style (apply format fmt args) styles))
-
-    #|
-    (define (view-apply a parent)
-      (match a
-        [(node:apply fun args inner result)
-         (define view (send parent new-list))
-         (send view user-data a)
-         (send view open)
-         (add:apply* inner view)]))
-    (define (add:apply* a view)
-      (define (label s) (send (send view get-editor) insert s) #t)
-      (match a
-        [(apply:primop ?1)
-         (label "primop")]
-        [(apply:closure ?1 body)
-         (label "closure")
-         (and (add:exn ?1 view) (add:deriv body view))]
-        [(apply:fixed self apply)
-         (label "fixed")
-         (and (add:apply self view) (add:apply apply view))]
-        [(apply:mem-hit)
-     (label "memoized (hit)")]
-    [(apply:mem-miss apply)
-     (label "memoized (miss)")
-     (add:apply apply view)]
-    [(apply:error exn)
-     (label "error")]))
-    |#
     ))
 
 
