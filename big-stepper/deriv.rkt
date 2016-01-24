@@ -82,7 +82,7 @@
               [ERR (Mget1)]
               [neww (Mget2)] [_2 (Mset2 (* oldw neww))])
              -> (begin
-                  (eprintf "oldw = ~s, neww = ~s\n" oldw neww)
+                  ;; (eprintf "oldw = ~s, neww = ~s\n" oldw neww)
                   (node:eval expr env inner (or ERR result) neww)))]
     [$ (deriv:let* rhss body)]
     [$ (deriv:app op args apply)]
@@ -95,7 +95,7 @@
      -> (Mdo ([dist (ann dist)] [value (ann value)] [?1 (ann ?1)]
               [w1 (Mget2)] [_2 (Mset2 (* w1 weight))] [w2 (Mget2)])
              -> (begin
-                  (eprintf "o-s: weight = ~s, w1 = ~s, w2 = ~s\n" weight w1 w2)
+                  ;; (eprintf "o-s: weight = ~s, w1 = ~s, w2 = ~s\n" weight w1 w2)
                   (deriv:observe-sample dist value ?1 weight)))]
     [$ (deriv:fail ?1)]
     [$ (deriv:mem fun ?1)]

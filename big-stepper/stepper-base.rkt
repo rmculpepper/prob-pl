@@ -21,7 +21,9 @@
     (expr->stx expr))
   (match expr
     [(? symbol? var) var]
-    [(expr:quote value) `(quote ,value)]
+    [(expr:quote value)
+     (cond [(or (number? value) (boolean? value)) value]
+           [else `(quote ,value)])]
     [(expr:lambda args body) `(lambda ,args ,(loop body))]
     [(expr:fix e) `(fix ,(loop e))]
     [(expr:app cs op args) `(,(loop op) ,@(map loop args))]

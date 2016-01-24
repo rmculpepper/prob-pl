@@ -1,5 +1,6 @@
 #lang racket/base
 (require racket/class
+         racket/pretty
          (rename-in racket/match [match-define defmatch])
          racket/gui
          framework
@@ -159,13 +160,12 @@
       (send t erase)
       (when d (show-deriv d)))
 
-    ;; show-* returns #f if okay, String for error
     (define/public (show-deriv d)
       (match d
         [(node:eval expr env inner result weight)
          (define table (make-hash))
          (define env-sexpr (env->sexpr env))
-         (hash-set! table env-sexpr "ρ")
+         ;; (hash-set! table env-sexpr "ρ")
          (show-inner expr env inner result table)
          (insert (new hrule-snip%) #:style hrule-sd)
          (insert "\n")
@@ -177,21 +177,57 @@
 
     (define/public (show-judgment env expr result weight table)
       (insert/abbrev (env->sexpr env) table)
-      (insert ", ")
-      (insert/abbrev (expr->sexpr expr) table)
-      (insert " ⇓ ")
+      (insert ",\n" #:style meta-sd)
+      ;; (insert/abbrev (expr->sexpr expr) table)
+      (insert (render-expr expr) #:style code-sd)
+      (insert "\n ⇓\n" #:style meta-sd)
       (cond [(exn? result)
              (insert (exn-message result) #:style error-sd)]
             [else (insert/abbrev (value->sexpr result) table)])
-      (insert ", ")
-      (insertf "~s" weight)
+      (insert ",\n" #:style meta-sd)
+      (insertf "~s" weight #:style code-sd)
       (insert "\n"))
 
-    (define/public (insert/abbrev sexpr table)
+    (define/public (show-judgment/OLD env expr result weight table)
+      (insert/abbrev (env->sexpr env) table)
+      (insert ", " #:style meta-sd)
+      (insert/abbrev (expr->sexpr expr) table)
+      (insert " ⇓ " #:style meta-sd)
+      (cond [(exn? result)
+             (insert (exn-message result) #:style error-sd)]
+            [else (insert/abbrev (value->sexpr result) table)])
+      (insert ", " #:style meta-sd)
+      (insertf "~s" weight #:style code-sd)
+      (insert "\n"))
+
+    (define/public (summary-judgment d table)
+      (match d
+        [(node:eval expr env inner result weight)
+         (insert/abbrev (env->sexpr env) table #:limit 20)
+         (insert ", " #:style meta-sd)
+         (insert/abbrev (expr->sexpr expr) table #:limit 50)
+         (insert "  ⇓  " #:style meta-sd)
+         (cond [(exn? result)
+                (insert (exn-message result) #:style error-sd)]
+               [else (insert/abbrev (value->sexpr result) table #:limit 30)])
+         (insert ", " #:style meta-sd)
+         (insertf "~s" weight #:style code-sd)
+         (insert "\n")]
+        [#f (void)]))
+
+    (define/public (insert/abbrev sexpr table
+                                  #:insert [insert-abbrev #f]
+                                  #:limit [limit +inf.0])
       (cond [(hash-ref table sexpr #f)
              => (lambda (abbrev) (insert abbrev #:style meta-code-sd))]
             [else
-             (insertf "~s" sexpr #:style code-sd)]))
+             (define s (format "~s" sexpr))
+             (cond [(and insert-abbrev (> (length s) limit))
+                    (hash-set! table sexpr insert-abbrev)
+                    (insert insert-abbrev #:style meta-code-sd)]
+                   [else
+                    (insert (~a s #:max-width limit #:limit-marker "̣...")
+                            #:style code-sd)])]))
 
     (define/public (show-table table)
       (define abbrev+sexpr-list
@@ -203,15 +239,15 @@
         (for ([abbrev+sexpr abbrev+sexpr-list])
           (defmatch (cons abbrev sexpr) abbrev+sexpr)
           (insert abbrev #:style meta-code-sd)
-          (insert " = ")
-          (define t* (new text%))
-          (define s (new resizable-editor-snip% (inner-editor t*)))
-          (send t* insert (format "~s" sexpr))
-          (insert s)
-          '(insertf "~s\n" sexpr #:style code-sd))))
+          (insert " = " #:style meta-sd)
+          ;; (define t* (new text%))
+          ;; (define s (new resizable-editor-snip% (inner-editor t*)))
+          ;; (send t* insert (format "~s" sexpr))
+          ;; (insert s)
+          (insertf "~s\n" sexpr #:style code-sd))))
 
     (define/public (render-expr expr)
-      (format "~s" (expr->sexpr expr)))
+      (pretty-format (expr->sexpr expr) 60 #:mode 'write))
 
     (define/public (render-env env)
       (string-append
@@ -228,33 +264,68 @@
       (format "~s" (value->sexpr v)))
 
     (define/public (show-inner expr env inner result table)
+      (define (summary d) (summary-judgment d table))
       (match inner
         [(deriv:variable ?1)
-         (insert/rule "variable")]
+         (insert/rule "variable")
+         (summary-exn ?1)]
         [(deriv:quote)
          (insert/rule "constant")]
         [(deriv:let* rhss body)
-         (insert/rule "let*")]
+         (insert/rule "let*")
+         (for ([rhs rhss])
+           (summary rhs))
+         (summary body)]
         [(deriv:lambda)
          (insert/rule "lambda")]
         [(deriv:app op args apply)
-         (insert/rule "application")]
+         (insert/rule "application")
+         (summary op)
+         (for ([arg args]) (summary arg))
+         ;; FIXME: apply
+         ]
         [(deriv:fix arg ?1)
-         (insert/rule "fix")]
+         (insert/rule "fix")
+         (summary arg)
+         (summary-exn ?1)]
         [(deriv:if test branch)
-         (insert/rule "if")]
+         (insert/rule "if")
+         (summary test)
+         (summary branch)]
         [(deriv:S-sample inner ?1 sample)
-         (insert/rule "S-sample")]
+         (insert/rule "S-sample")
+         (summary inner)
+         (summary-exn ?1)
+         ;; sample?
+         ]
         [(deriv:N-sample inner ?1 sample)
-         (insert/rule "N-sample")]
+         (insert/rule "N-sample")
+         (summary inner)
+         (summary-exn ?1)
+         ;; sample?
+         ]
         [(deriv:observe-sample dist value ?1 weight)
-         (insert/rule "observe-sample")]
+         (insert/rule "observe-sample")
+         (summary dist)
+         (summary value)
+         (summary-exn ?1)
+         ;; weight?
+         ]
         [(deriv:fail ?1)
-         (insert/rule "fail")]
+         (insert/rule "fail")
+         (summary-exn ?1)]
         [(deriv:mem fun ?1)
-         (insert/rule "mem")]
+         (insert/rule "mem")
+         (summary fun)
+         (summary-exn ?1)]
         [(deriv:error exn)
-         (insert/rule "error")]))
+         (insert/rule "error")
+         (summary-exn exn)]
+        ))
+
+    (define/public (summary-exn e)
+      (when (exn? e)
+        (insert (exn-message e) #:style error-sd)))
 
     (define/public (insert/rule s)
       (insert/style (string-append "[" s "]\n\n") (list rule-sd)))
@@ -266,7 +337,7 @@
       (for ([sd (if (list? style) style (list style))])
         (send t change-style sd a b #f)))
     (define/private (insert s #:style [styles null])
-      (insert/style s null))
+      (insert/style s styles))
     (define/private (insertf #:style [styles null] fmt . args)
       (insert/style (apply format fmt args) styles))
 
@@ -447,4 +518,6 @@
 (define error-sd (style-delta [change-italic] [color "red"]))
 (define code-sd (style-delta [change-family 'modern]))
 (define meta-code-sd (style-delta [change-family 'modern] [change-italic]))
+(define meta-sd (style-delta [change-family 'modern] [color "blue"]
+                             [change-bold] [change-bigger 2]))
 (define hrule-sd (style-delta [change-size 4]))
