@@ -45,13 +45,30 @@
 (define (add:deriv d parent)
   (match d
     [(node:eval expr env inner result _weight)
-     (define view (send parent new-list))
-     (send view user-data d)
-     (send view open)
-     (add:inner expr env inner result view)]
+     (cond [(trivial-deriv? inner)
+            ;; Skip trivial nodes
+            #t]
+           [else
+            (define view (send parent new-list))
+            (send view user-data d)
+            (send view open)
+            (add:inner expr env inner result view)])]
     [#f
      (eprintf "add:deriv: bad ~e" d)
      #f]))
+
+;; trivial-deriv? : Inner -> Boolean
+(define (trivial-deriv? inner) (eq? (classify-deriv inner) 'trivial))
+
+;; leaf-deriv? : Inner -> Boolean
+
+;; classify-deriv : Inner -> (U 'trivial 'leaf 'compound)
+(define (classify-deriv inner)
+  (match inner
+    [(deriv:quote) 'trivial]
+    [(deriv:variable #f) 'trivial]
+    [(deriv:lambda) 'trivial]
+    [_ 'compound]))
 
 ;; add:inner : ... -> Boolean
 (define (add:inner expr env inner result view)

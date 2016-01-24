@@ -153,7 +153,7 @@
       (let* ([sig (car sig+val)]
              [val (cdr sig+val)]
              [t (tokenize sig val pos)])
-        (when #t; (trace-verbose?)
+        (when #f; (trace-verbose?)
           (printf "~s: ~s\n" pos
                   (token-name (position-token-token t))))
         (set! pos (add1 pos))
