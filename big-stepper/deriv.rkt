@@ -3,7 +3,7 @@
          "../base.rkt")
 (provide (all-defined-out))
 
-(struct node:eval (expr env inner result) #:transparent)
+(struct node:eval (expr env inner result weight) #:transparent)
 (struct deriv:variable (?1) #:transparent)
 (struct deriv:quote ()  #:transparent)
 (struct deriv:let* (rhss body) #:transparent)
@@ -41,10 +41,14 @@
   (unless (procedure? fa)
     (error 'Mbind "fa is not procedure:\n  f = ~e\n  a = ~e\n  fa = ~e" f a fa))
   (defmatch (cons a* s*) (fa s))
-  (cons a* (or s s*)))
+  (cons a* s*)) ;;(or s s*)
 
-(define (Merr x) (lambda (s) (cons (void) x)))
+(define (Mset x) (lambda (s) (cons x x)))
+(define (Mset1 x) (lambda (s) (cons x (cons x (cdr s)))))
+(define (Mset2 x) (lambda (s) (cons x (cons (car s) x))))
 (define (Mget) (lambda (s) (cons s s)))
+(define (Mget1) (lambda (s) (cons (car s) s)))
+(define (Mget2) (lambda (s) (cons (cdr s) s)))
 (define-syntax Mdo
   (syntax-rules (->)
     [(Mdo () -> e) (Munit e)]
@@ -52,8 +56,10 @@
     [(Mdo ([x e] . bs) . body)
      (Mbind e (lambda (x) (Mdo bs . body)))]))
 
+;; we use S = (cons Exn/#f Real+); exn-if-interrupted and likelihood weight
+
 (define (annotate d)
-  (car ((ann d) #f)))
+  (car ((ann d) (cons #f 1))))
 
 (define (ann d)
   (define-syntax copy
@@ -70,16 +76,27 @@
   (copy
     ['() -> (Munit '())]
     [(cons e1 es) -> (Mdo ([e1 (ann e1)] [es (ann es)]) -> (cons e1 es))]
-    [(node:eval expr env inner result)
-     -> (Mdo ([inner (ann inner)] [ERR (Mget)])
-             -> (node:eval expr env inner (or ERR result)))]
+    [(node:eval expr env inner result _w)
+     -> (Mdo ([oldw (Mget2)] [_1 (Mset2 1)]
+              [inner (ann inner)]
+              [ERR (Mget1)]
+              [neww (Mget2)] [_2 (Mset2 (* oldw neww))])
+             -> (begin
+                  (eprintf "oldw = ~s, neww = ~s\n" oldw neww)
+                  (node:eval expr env inner (or ERR result) neww)))]
     [$ (deriv:let* rhss body)]
     [$ (deriv:app op args apply)]
     [$ (deriv:fix arg ?1)]
     [$ (deriv:if test branch)]
     [$ (deriv:S-sample inner ?1 sample)]
     [$ (deriv:N-sample inner ?1 sample)]
-    [$ (deriv:observe-sample dist value ?1 weight)]
+    ;; [$ (deriv:observe-sample dist value ?1 weight)]
+    [(deriv:observe-sample dist value ?1 weight)
+     -> (Mdo ([dist (ann dist)] [value (ann value)] [?1 (ann ?1)]
+              [w1 (Mget2)] [_2 (Mset2 (* w1 weight))] [w2 (Mget2)])
+             -> (begin
+                  (eprintf "o-s: weight = ~s, w1 = ~s, w2 = ~s\n" weight w1 w2)
+                  (deriv:observe-sample dist value ?1 weight)))]
     [$ (deriv:fail ?1)]
     [$ (deriv:mem fun ?1)]
     [$ (node:apply fun args inner v)]
@@ -87,15 +104,15 @@
     [$ (apply:closure ?1 body)]
     [$ (apply:fixed self apply)]
     [$ (apply:mem-miss apply)]
-    [(? exn? exn) -> (Merr exn)]
+    [(? exn? exn) -> (Mset1 exn)]
     [_ -> (Munit d)]))
 
 ;; ------------------------------------------------------------
 
 (define (trim d)
   (match d
-    [(node:eval expr env inner result)
-     (node:eval expr (trim-env env) (trim inner) result)]
+    [(node:eval expr env inner result weight)
+     (node:eval expr (trim-env env) (trim inner) result weight)]
     [(deriv:let* rhss body)
      (deriv:let* (map trim rhss) (trim body))]
     [(deriv:app op args apply)

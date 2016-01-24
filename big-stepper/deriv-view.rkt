@@ -43,7 +43,7 @@
 ;; add:deriv : Deriv HierlistContainer -> Boolean
 (define (add:deriv d parent)
   (match d
-    [(node:eval expr env inner result)
+    [(node:eval expr env inner result _weight)
      (define view (send parent new-list))
      (send view user-data d)
      (send view open)
@@ -162,20 +162,20 @@
     ;; show-* returns #f if okay, String for error
     (define/public (show-deriv d)
       (match d
-        [(node:eval expr env inner result)
+        [(node:eval expr env inner result weight)
          (define table (make-hash))
          (define env-sexpr (env->sexpr env))
          (hash-set! table env-sexpr "ρ")
          (show-inner expr env inner result table)
          (insert (new hrule-snip%) #:style hrule-sd)
          (insert "\n")
-         (show-judgment env expr result table)
+         (show-judgment env expr result weight table)
          (show-table table)]
         [#f
          (insertf "bad deriv:\n~e" d)
          #f]))
 
-    (define/public (show-judgment env expr result table)
+    (define/public (show-judgment env expr result weight table)
       (insert/abbrev (env->sexpr env) table)
       (insert ", ")
       (insert/abbrev (expr->sexpr expr) table)
@@ -183,6 +183,8 @@
       (cond [(exn? result)
              (insert (exn-message result) #:style error-sd)]
             [else (insert/abbrev (value->sexpr result) table)])
+      (insert ", ")
+      (insertf "~s" weight)
       (insert "\n"))
 
     (define/public (insert/abbrev sexpr table)
