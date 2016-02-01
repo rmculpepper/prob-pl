@@ -234,7 +234,7 @@
          (insert "  ⇓  " #:style meta-sd)
          (cond [(exn? result)
                 (insert (exn-message result) #:style error-sd)]
-               [else (insert/abbrev (value->sexpr result) table #:limit 30)])
+               [else (insert/abbrev (value->sexpr result) table #:limit 40)])
          (insert "\n")]
         [_ (void)]))
 
@@ -247,7 +247,7 @@
          (insert "  ⇓  " #:style meta-sd)
          (cond [(exn? result)
                 (insert (exn-message result) #:style error-sd)]
-               [else (insert/abbrev (value->sexpr result) table #:limit 30)])
+               [else (insert/abbrev (value->sexpr result) table #:limit 40)])
          (insert ", " #:style meta-sd)
          (insertf "~s" weight #:style code-sd)
          (insert "\n")]
@@ -370,8 +370,14 @@
          (summary dist)
          (summary value)
          (summary-exn ?1)
-         ;; weight?
-         ]
+         (unless ?1
+           (insert "density of " #:style meta-sd)
+           (insert/abbrev (value->sexpr (node:eval-result value)) #hash() #:limit 30)
+           (insert " in " #:style meta-sd)
+           (insert/abbrev (value->sexpr (node:eval-result dist)) #hash() #:limit 40)
+           (insert " = " #:style meta-sd)
+           (insert/abbrev weight #hash())
+           (insert "\n"))]
         [(deriv:fail ?1)
          (insert/rule "fail")
          (summary-exn ?1)]
@@ -403,138 +409,6 @@
       (insert/style (apply format fmt args) styles))
     ))
 
-
-;; ============================================================
-
-;; resizable-editor-snip%
-(define resizable-editor-snip%
-  (class* editor-snip% ()
-    (init-field (inner-editor (new text%)))
-    (inherit get-flags set-flags)
-    (super-new (editor inner-editor))
-    (set-flags (append '(handles-events handles-all-mouse-events) (get-flags)))
-
-    (define/public (get-inner-editor) inner-editor)
-
-    (define was-dragging? #f)
-
-    (define/override (on-event dc x y edx edy event)
-      (define (call-super) (super on-event dc x y edx edy event))
-      (define TARGET-W 4)
-      (define TARGET-H 4)
-      (define mx (send event get-x))
-      (define my (send event get-y))
-      (define sxb (box 0))
-      (define syb (box 0))
-      (define owner (send (send this get-admin) get-editor))
-      (send owner get-snip-location this sxb syb #f)
-      (define sx1 (unbox sxb))
-      (define sy1 (unbox syb))
-      (send owner get-snip-location this sxb syb #t)
-      (define sx2 (unbox sxb))
-      (define sy2 (unbox syb))
-      (eprintf "event ~s,~s ~s,~s ~s ~a\n" x y edx edy
-               (send event get-event-type)
-               (if (send event dragging?) "dragging" ""))
-      (eprintf "  mouse at ~s,~s\n" mx my)
-      (eprintf "  snip top-left ~s,~s bottom-right ~s,~s\n"
-               sx1 sy1 sx2 sy2)
-      (eprintf "  size min ~s,~s max ~s,~s\n"
-               (send this get-min-width) (send this get-min-height)
-               (send this get-max-width) (send this get-max-height))
-      (cond [(and (eq? (send event get-event-type) 'left-down)
-                  (<= (max sx1 #;(- sx2 TARGET-W)) mx sx2)
-                  (<= (max sy1 #;(- sy2 TARGET-H)) my sy2))
-             (set! was-dragging? #t)
-             (call-super)]
-            [(eq? (send event get-event-type) 'leave)
-             (set! was-dragging? #f)
-             (call-super)]
-            [(and was-dragging?
-                  (eq? (send event get-event-type) 'left-up))
-             (send this resize (- mx sx1) (- my sy1))
-             (void)]
-            [else (call-super)]))
-    ))
-
-#|
-;; clicky-snip%
-(define clicky-snip%
-  (class* editor-snip% ()
-    (init-field [open-style '(border)]
-                [closed-style '(tight-text-fit)])
-    (inherit set-margin
-             set-inset
-             set-snipclass
-             set-tight-text-fit
-             show-border
-             get-admin)
-
-    (define -outer (new text%))
-    (super-new (editor -outer) (with-border? #f))
-    (set-margin 2 2 2 2)
-    (set-inset 2 2 2 2)
-    ;;(set-margin 3 0 0 0)
-    ;;(set-inset 1 0 0 0)
-    ;;(set-margin 0 0 0 0)
-    ;;(set-inset 0 0 0 0)
-
-    (define/public (closed-contents) null)
-    (define/public (open-contents) null)
-
-    (define open? #f)
-
-    (define/public (refresh-contents)
-      (with-unlock -outer
-        (send -outer erase)
-        (do-style (if open? open-style closed-style))
-        (outer:insert (if open? (hide-icon) (show-icon))
-                      style:hyper
-                      (if open?
-                          (lambda _
-                            (set! open? #f)
-                            (refresh-contents))
-                          (lambda _
-                            (set! open? #t)
-                            (refresh-contents))))
-        (for-each (lambda (s) (outer:insert s))
-                  (if open? (open-contents) (closed-contents)))
-        (send -outer change-style top-aligned 0 (send -outer last-position))))
-
-    (define/private (do-style style)
-      (show-border (memq 'border style))
-      (set-tight-text-fit (memq 'tight-text-fit style)))
-
-    (define/private outer:insert
-      (case-lambda
-       [(obj)
-        (if (styled? obj)
-            (outer:insert (styled-contents obj)
-                          (styled-style obj)
-                          (styled-clickback obj))
-            (outer:insert obj style:normal))]
-       [(text style)
-        (outer:insert text style #f)]
-       [(text style clickback)
-        (let ([start (send -outer last-position)])
-          (send -outer insert text)
-          (let ([end (send -outer last-position)])
-            (send -outer change-style style start end #f)
-            (when clickback
-                  (send -outer set-clickback start end clickback))))]))
-
-    (send -outer hide-caret #t)
-    (send -outer lock #t)
-    (refresh-contents)
-    ))
-
-(define (show-icon)
-  (make-object image-snip%
-    (collection-file-path "turn-up.png" "icons")))
-(define (hide-icon)
-  (make-object image-snip%
-    (collection-file-path "turn-down.png" "icons")))
-|#
 
 ;; ============================================================
 
