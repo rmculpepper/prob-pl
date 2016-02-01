@@ -59,7 +59,7 @@
   (cond [(eq? env base-env) null]
         [(null? env) null]
         [else
-         (cons (list (caar env) (value->sexpr (cdar env)))
+         (cons (list (caar env) '↦ (value->sexpr (cdar env)))
                (env->sexpr (cdr env) base-env))]))
 
 (define (mkstx x) (datum->syntax #f x))
