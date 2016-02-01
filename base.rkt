@@ -230,3 +230,28 @@
            [y (N-sample (uniform-dist -2 2))]
            [_o (soft-eq (+ (* x x) (* y y)) 1)])
      (list x y))))
+
+(define p-chain
+  (parse-expr
+   '(let* ([x (N-sample (normal-dist 0 2))]
+           [y (N-sample (normal-dist (* 2 x) 1))]
+           [z (N-sample (normal-dist (* 2 y) 1))]
+           [_o (observe-sample (normal-dist z 0.3) 4)])
+     (list x y z))))
+
+(define p-linear
+  (parse-expr
+   '(let* ([map
+            (fix (lambda (map)
+                   (lambda (f xs)
+                     (if (pair? xs) (cons (f (car xs)) (map f (cdr xs))) '()))))]
+           ;; --
+           [a (N-sample (normal-dist 0 10))]
+           [b (N-sample (normal-dist 0 10))]
+           [e #;(N-sample (gamma-dist 1 1)) 1]
+           [f (lambda (x) (N-sample (normal-dist (+ (* a x) b) 1)))]
+           [observe-f (lambda (x y) (observe-sample (normal-dist (+ (* a x) b) e) y))]
+           [_o (map (lambda (xy) (observe-f (car xy) (cdr xy)))
+                    ;; y = 2x+1
+                    '((0 . 1) (1 . 3) (2 . 5) (3 . 7) (4 . 9)))])
+     (list a b e))))
